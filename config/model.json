@@ -13,7 +13,7 @@
 	"projection": "mean",
 	"inner_attn": true,
 	"efficient_attn": true,
-	"scaled_attn": true,
+	"scaled_attn": false,
 
 	"dropout": 0.0,
 	"bias": false,

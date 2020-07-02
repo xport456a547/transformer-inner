@@ -72,7 +72,7 @@ class Attention(nn.Module):
         self.dropout_k = nn.Dropout(cfg.dropout)
         self.dropout_v = nn.Dropout(cfg.dropout)
 
-    def forward(self, q, k, v, mask_attn=None, mask_out=None):
+    def forward(self, q, k, v, mask_q=None, mask_attn=None, mask_out=None):
         q = self.dropout_q(self.proj_q(q))
         k = self.dropout_k(self.proj_k(k))
         v = self.dropout_v(self.proj_v(v))
@@ -87,32 +87,48 @@ class Attention(nn.Module):
         n, t, d = v.size()
         v = v.reshape(n, -1, self.n_heads, d//self.n_heads).transpose(1, 2)
 
-        if not self.efficient_attn:
-            if not self.scaled_attn:
+        if self.efficient_attn:
+
+            if self.scaled_attn:
+                if mask_attn is not None:
+                    k = k * mask_attn[:, None, :, None].float()
+                if mask_attn is not None:
+                    q = q * mask_q[:, None, :, None].float()
+
+                k = k / t
+                output = k.transpose(-1, -2) @ v
+                output = q @ output
+
+            else:
+
+                if mask_attn is not None:
+                    k = k - 10000 * (1.0 - mask_attn[:, None, :, None].float())
+                if mask_q is not None:
+                    q = q - 10000 * (1.0 - mask_q[:, None, :, None].float())
+
+                k = torch.softmax(k, dim=-2)
+                output = k.transpose(-1, -2) @ v
+                output = torch.softmax(q, dim=-1) @ output
+
+        else:
+
+            if self.scaled_attn:
+                if mask_attn is not None:
+                    k = k * mask_attn[:, None, :, None].float()
+                if mask_q is not None:
+                    q = q * mask_q[:, None, :, None].float()
+
+                output = (q @ k.transpose(-1, -2)) / t
+                output = (output @ v)
+
+            else:
+
                 output = q @ k.transpose(-1, -2) / math.sqrt(d//self.n_heads)
                 if mask_attn is not None:
                     output = output - 10000.0 * \
                         (1.0 - mask_attn[:, None, None, :].float())
                 output = torch.softmax(output, dim=-1)
                 output = (output @ v)
-            else:
-                output = (q @ k.transpose(-1, -2)) / t
-                if mask_attn is not None:
-                    output = output * mask_attn[:, None, None, :].float()
-                output = (output @ v)
-        else:
-            if not self.scaled_attn:
-                k = torch.softmax(k, dim=-2)
-                if mask_attn is not None:
-                    k = k * mask_attn[:, None, :, None].float()
-                output = k.transpose(-1, -2) @ v
-                output = torch.softmax(q, dim=-1) @ output
-            else:
-                k = k / t
-                if mask_attn is not None:
-                    k = k * mask_attn[:, None, :, None].float()
-                output = k.transpose(-1, -2) @ v
-                output = q @ output
 
         n, h, t, d = output.size()
 
@@ -212,7 +228,7 @@ class Projection(nn.Module):
             x = x.reshape(n*self.n_blocks, t//self.n_blocks, d)
             new_mask = mask.reshape(n*self.n_blocks, t//self.n_blocks)
             x = self.proj(compress_time(
-                x, new_mask, keepdim=True), x, x, mask, new_mask)
+                x, new_mask, keepdim=True), x, x, new_mask, mask, new_mask)
             x = x.reshape(n, self.n_blocks, d)
 
         if mask is not None:
@@ -256,12 +272,12 @@ class LinearAttention(nn.Module):
         if self.cfg.inner_attn:
             x_proj, proj_mask = self.proj(x, mask)
             x_proj = self.proj_attn(
-                x_proj, x_proj, x_proj, proj_mask, proj_mask)
-            x = self.output_attn(x, x_proj, x_proj, proj_mask, mask)
+                x_proj, x_proj, x_proj, proj_mask, proj_mask, proj_mask)
+            x = self.output_attn(x, x_proj, x_proj, mask, proj_mask, mask)
         else:
             x_proj_k, proj_mask = self.proj_k(x, mask)
             x_proj_v, proj_mask = self.proj_v(x, mask)
-            x = self.output_attn(x, x_proj_k, x_proj_v, proj_mask, mask)
+            x = self.output_attn(x, x_proj_k, x_proj_v, mask, proj_mask, mask)
 
         return x
 
@@ -324,7 +340,7 @@ class Transformers(nn.Module):
                 attn = LinearAttention(cfg)
             if cfg.share_pwff:
                 pwff = PointWiseFeedForward(cfg)
-                
+
             self.transformers = nn.ModuleList(
                 [TransformerLayer(cfg, attn, pwff) for _ in range(cfg.n_layers)])
 
