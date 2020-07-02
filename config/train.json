@@ -6,12 +6,13 @@
     "accumulation_steps": 4,
 
     "mask_prob": 0.15,
+    "mask_masked_tokens_in_attn": true,
 
     "warmup": 0.1,
     "save_steps": 1000,
     "total_steps": 100000,
     
-    "optimizer": "radam",
+    "optimizer": "",
     "weigth_decay": 0.01, 
     "parallele": true
 }

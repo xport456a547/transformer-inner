@@ -17,6 +17,7 @@ class PreTrainDataset(object):
         self.max_len = model_cfg.max_len
 
         self.max_masked_words = round(train_cfg.mask_prob * model_cfg.max_len)
+        self.mask_masked_tokens_in_attn = train_cfg.mask_masked_tokens_in_attn
         
         self.step = 0
         self.dataset_indexes = [i for i in range(self.dataset_size)]
@@ -45,10 +46,14 @@ class PreTrainDataset(object):
             label_mask *= data["attention_mask"]
             input_ids = data["input_ids"] * (1 - label_mask) + label_mask * self.mask_id
             label = data["input_ids"] * label_mask
+            attn_mask = data["attention_mask"].float()
+
+            if self.mask_masked_tokens_in_attn:
+                attn_mask *= (1 - label_mask)
 
             self.step += batch_size
 
-            yield input_ids.long(), data["attention_mask"].float(), label.long(), label_mask
+            yield input_ids.long(), attn_mask.float(), label.long(), label_mask
 
     def reset_epoch(self):
 

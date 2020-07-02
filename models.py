@@ -135,9 +135,10 @@ class Attention(nn.Module):
         output = output.transpose(1, 2)
         output = output.reshape(n, t, d*h)
 
+        """
         if mask_out is not None:
             return output * mask_out.unsqueeze(-1)
-
+        """
         return output
 
 
