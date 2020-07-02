@@ -313,23 +313,18 @@ class Transformers(nn.Module):
     def __init__(self, cfg):
         super().__init__()
 
-        self.attn = LinearAttention(cfg)
-
-        if cfg.share_attn and not cfg.share_all:
-            attn = LinearAttention(cfg)
-        else:
-            attn = None
-
-        if cfg.share_pwff and not cfg.share_all:
-            pwff = PointWiseFeedForward(cfg)
-        else:
-            pwff = None
-
         if cfg.share_all:
-            transformer = Transformer(cfg)
+            transformer = TransformerLayer(cfg)
             self.transformers = nn.ModuleList(
                 [transformer for _ in range(cfg.n_layers)])
         else:
+            attn, pwff = None, None
+
+            if cfg.share_attn:
+                attn = LinearAttention(cfg)
+            if cfg.share_pwff:
+                pwff = PointWiseFeedForward(cfg)
+                
             self.transformers = nn.ModuleList(
                 [TransformerLayer(cfg, attn, pwff) for _ in range(cfg.n_layers)])
 
