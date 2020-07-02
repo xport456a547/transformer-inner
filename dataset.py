@@ -2,26 +2,22 @@ from transformers import AutoTokenizer
 import random
 from random import randint
 import torch
-import re
 
 class PreTrainDataset(object):
     
     def __init__(self, path, train_cfg, model_cfg):
 
         self.tokenizer = AutoTokenizer.from_pretrained("roberta-base")
-
-        self.data = open(path, "r", encoding="utf-8").read()
-        self.data = self.data.split("\n\n")
+        self.data = open(path, "r", encoding="utf-8").read().split("\n\n")
 
         self.batch_size = train_cfg.batch_size
+        self.dataset_size = len(self.data)
 
         self.mask_id = model_cfg.mask_id
         self.max_len = model_cfg.max_len
 
         self.max_masked_words = round(train_cfg.mask_prob * model_cfg.max_len)
-
-        self.dataset_size = len(self.data)
-
+        
         self.step = 0
         self.dataset_indexes = [i for i in range(self.dataset_size)]
 
@@ -52,11 +48,6 @@ class PreTrainDataset(object):
 
             self.step += batch_size
 
-            """
-            if self.step >= self.dataset_size - torch.cuda.device_count():
-                #self.reset_epoch()
-                break
-            """
             yield input_ids.long(), data["attention_mask"].float(), label.long(), label_mask
 
     def reset_epoch(self):

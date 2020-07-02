@@ -22,12 +22,10 @@ def compress_time(x, mask=None, keepdim=False):
         x = x.unsqueeze(1)
     return x
 
-
 def kmax_pooling(x, dim, k):
     index = x.topk(k, dim=dim)[1].sort(dim=dim)[0]
     #index = x.topk(k, dim=dim, sorted=False)[1]
     return x.gather(dim, index)
-
 
 class CustomLayerNorm(nn.Module):
 
@@ -55,7 +53,6 @@ class PointWiseFeedForward(nn.Module):
         x = F.gelu(self.fc1(x))
         x = self.dropout(x)
         return self.fc2(x)
-
 
 class Attention(nn.Module):
 
@@ -91,7 +88,6 @@ class Attention(nn.Module):
         v = v.reshape(n, -1, self.n_heads, d//self.n_heads).transpose(1, 2)
 
         if not self.efficient_attn:
-            
             if not self.scaled_attn:
                 output = q @ k.transpose(-1, -2) / math.sqrt(d//self.n_heads)
                 if mask_attn is not None:
@@ -99,30 +95,24 @@ class Attention(nn.Module):
                         (1.0 - mask_attn[:, None, None, :].float())
                 output = torch.softmax(output, dim=-1)
                 output = (output @ v)
-
             else:
-
                 output = (q @ k.transpose(-1, -2)) / t
                 if mask_attn is not None:
                     output = output * mask_attn[:, None, None, :].float()
                 output = (output @ v)
         else:
-
             if not self.scaled_attn:
                 k = torch.softmax(k, dim=-2)
                 if mask_attn is not None:
                     k = k * mask_attn[:, None, :, None].float()
                 output = k.transpose(-1, -2) @ v
                 output = torch.softmax(q, dim=-1) @ output
-
             else:
-
                 k = k / t
                 if mask_attn is not None:
                     k = k * mask_attn[:, None, :, None].float()
                 output = k.transpose(-1, -2) @ v
                 output = q @ output
-
 
         n, h, t, d = output.size()
 
@@ -161,7 +151,6 @@ class ConvProj(nn.Module):
         if size > 3:
             return x.transpose(-1, -2).view(n, h, -1, d)
         return x.transpose(-1, -2)
-
 
 class Projection(nn.Module):
 
@@ -248,7 +237,6 @@ class Projection(nn.Module):
 
         return x
 
-
 class LinearAttention(nn.Module):
 
     def __init__(self, cfg):
@@ -277,7 +265,6 @@ class LinearAttention(nn.Module):
 
         return x
 
-
 class TransformerLayer(nn.Module):
 
     def __init__(self, cfg, attn=None, pwff=None):
@@ -305,7 +292,6 @@ class TransformerLayer(nn.Module):
 
         return x
 
-
 class Embeddings(nn.Module):
     "The embedding module from word, position and token_type embeddings."
 
@@ -321,7 +307,6 @@ class Embeddings(nn.Module):
         x = self.embedding(x)
         x = self.proj(x)
         return self.norm(x)
-
 
 class Transformers(nn.Module):
 
