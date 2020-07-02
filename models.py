@@ -1,4 +1,3 @@
-import numpy as np
 import torch
 import torch.nn as nn
 from torch.nn import *
@@ -10,7 +9,7 @@ warnings.filterwarnings("ignore")
 def gelu(x):
     "Implementation of the gelu activation function by Hugging Face"
     return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
-    
+
 def compress_time(x, mask=None, keepdim=False):
     if mask is not None:
         x = x*mask.unsqueeze(-1)
@@ -23,10 +22,12 @@ def compress_time(x, mask=None, keepdim=False):
         x = x.unsqueeze(1)
     return x
 
+
 def kmax_pooling(x, dim, k):
     index = x.topk(k, dim=dim)[1].sort(dim=dim)[0]
     #index = x.topk(k, dim=dim, sorted=False)[1]
     return x.gather(dim, index)
+
 
 class CustomLayerNorm(nn.Module):
 
@@ -42,40 +43,39 @@ class CustomLayerNorm(nn.Module):
         x = (x - u) / torch.sqrt(s + self.variance_epsilon)
         return self.gamma * x + self.beta
 
-
 class PointWiseFeedForward(nn.Module):
 
     def __init__(self, cfg):
         super().__init__()
         self.fc1 = nn.Linear(cfg.hidden, cfg.hidden_ff)
         self.fc2 = nn.Linear(cfg.hidden_ff, cfg.hidden)
-        self.dropout = nn.Dropout(0.0)
+        self.dropout = nn.Dropout(cfg.dropout)
 
     def forward(self, x):
         x = F.gelu(self.fc1(x))
         x = self.dropout(x)
         return self.fc2(x)
 
+
 class Attention(nn.Module):
 
-    def __init__(self, input_dim, hidden, n_heads=4, dropout=0.0, bias=False):
-
+    def __init__(self, cfg):
         super().__init__()
+        assert cfg.hidden % cfg.n_heads == 0, "hidden must be divisible by n_heads"
 
-        assert hidden % n_heads == 0, "hidden must be divisible by n_heads"
+        self.n_heads = cfg.n_heads
+        self.efficient_attn = cfg.efficient_attn
+        self.scaled_attn = cfg.scaled_attn
 
-        self.n_heads = n_heads
+        self.proj_q = nn.Linear(cfg.hidden, cfg.hidden, bias=cfg.bias)
+        self.proj_k = nn.Linear(cfg.hidden, cfg.hidden, bias=cfg.bias)
+        self.proj_v = nn.Linear(cfg.hidden, cfg.hidden, bias=cfg.bias)
 
-        self.proj_q = nn.Linear(input_dim, hidden, bias=bias)
-        self.proj_k = nn.Linear(input_dim, hidden, bias=bias)
-        self.proj_v = nn.Linear(input_dim, hidden, bias=bias)
-
-        self.dropout_q = nn.Dropout(dropout)
-        self.dropout_k = nn.Dropout(dropout)
-        self.dropout_v = nn.Dropout(dropout)
+        self.dropout_q = nn.Dropout(cfg.dropout)
+        self.dropout_k = nn.Dropout(cfg.dropout)
+        self.dropout_v = nn.Dropout(cfg.dropout)
 
     def forward(self, q, k, v, mask_attn=None, mask_out=None):
-
         q = self.dropout_q(self.proj_q(q))
         k = self.dropout_k(self.proj_k(k))
         v = self.dropout_v(self.proj_v(v))
@@ -90,14 +90,39 @@ class Attention(nn.Module):
         n, t, d = v.size()
         v = v.reshape(n, -1, self.n_heads, d//self.n_heads).transpose(1, 2)
 
-        scores = q @ k.transpose(-1, -2) / math.sqrt(d//self.n_heads)
+        if not self.efficient_attn:
+            
+            if not self.scaled_attn:
+                output = q @ k.transpose(-1, -2) / math.sqrt(d//self.n_heads)
+                if mask_attn is not None:
+                    output = output - 10000.0 * \
+                        (1.0 - mask_attn[:, None, None, :].float())
+                output = torch.softmax(output, dim=-1)
+                output = (output @ v)
 
-        if mask_attn is not None:
-            scores = scores - 10000.0 * \
-                (1.0 - mask_attn[:, None, None, :].float())
+            else:
 
-        scores = torch.softmax(scores, dim=-1)
-        output = (scores @ v)
+                output = (q @ k.transpose(-1, -2)) / t
+                if mask_attn is not None:
+                    output = output * mask_attn[:, None, None, :].float()
+                output = (output @ v)
+        else:
+
+            if not self.scaled_attn:
+                k = torch.softmax(k, dim=-2)
+                if mask_attn is not None:
+                    k = k * mask_attn[:, None, :, None].float()
+                output = k.transpose(-1, -2) @ v
+                output = torch.softmax(q, dim=-1) @ output
+
+            else:
+
+                k = k / t
+                if mask_attn is not None:
+                    k = k * mask_attn[:, None, :, None].float()
+                output = k.transpose(-1, -2) @ v
+                output = q @ output
+
 
         n, h, t, d = output.size()
 
@@ -106,16 +131,16 @@ class Attention(nn.Module):
 
         if mask_out is not None:
             return output * mask_out.unsqueeze(-1)
-        
+
         return output
+
 
 class ConvProj(nn.Module):
 
     def __init__(self, input_dim, hidden, n_blocks=4, block_size=4):
-
         super().__init__()
         assert n_blocks >= 2, "n_blocks must be >= 2"
-        
+
         self.conv_1 = nn.Conv1d(input_dim, hidden,
                                 kernel_size=block_size, stride=block_size//2)
         self.conv_2 = nn.MaxPool1d(kernel_size=n_blocks, stride=1)
@@ -137,38 +162,40 @@ class ConvProj(nn.Module):
             return x.transpose(-1, -2).view(n, h, -1, d)
         return x.transpose(-1, -2)
 
+
 class Projection(nn.Module):
 
-    def __init__(self, input_dim, hidden, n_blocks, block_size, n_heads=8, dropout=0.0, bias=False, projection="mean"):
-
+    def __init__(self, cfg):
         super().__init__()
-        assert projection in ["lstm", "gru", "mean", "max", "cnn", "dense", "block", "topmax"]
+        assert cfg.projection in ["lstm", "gru", "mean",
+                              "max", "cnn", "dense", "block", "topmax"]
 
-        self.projection = projection
-        self.n_blocks = n_blocks
+        self.projection = cfg.projection
+        self.n_blocks = cfg.n_blocks
 
-        if projection == "lstm":
-            self.proj = nn.LSTM(hidden, hidden//2, bidirectional=True, batch_first=True)
-        elif projection == "gru":
-            self.proj = nn.GRU(hidden, hidden//2, bidirectional=True, batch_first=True)
-        elif projection == "mean":
-            self.proj = nn.AvgPool1d(block_size, block_size)
-        elif projection == "max":
-            self.proj = nn.MaxPool1d(block_size, block_size)
-        elif projection == "cnn":
-            self.proj = ConvProj(hidden, hidden, n_blocks, block_size)
-        elif projection == "dense":
-            self.proj = nn.Linear(n_blocks*block_size, n_blocks, bias=bias)
-        elif projection == "block":
-            self.proj = Attention(hidden, hidden, n_heads, dropout, bias)
-        
-        self.linear = nn.Linear(hidden, hidden)
+        if cfg.projection == "lstm":
+            self.proj = nn.LSTM(cfg.hidden, cfg.hidden//2,
+                                bidirectional=True, batch_first=True)
+        elif cfg.projection == "gru":
+            self.proj = nn.GRU(cfg.hidden, cfg.hidden//2,
+                               bidirectional=True, batch_first=True)
+        elif cfg.projection == "mean":
+            self.proj = nn.AvgPool1d(cfg.block_size, cfg.block_size)
+        elif cfg.projection == "max":
+            self.proj = nn.MaxPool1d(cfg.block_size, cfg.block_size)
+        elif cfg.projection == "cnn":
+            self.proj = ConvProj(cfg.hidden, cfg.hidden, cfg.n_blocks, cfg.block_size)
+        elif cfg.projection == "dense":
+            self.proj = nn.Linear(cfg.n_blocks*cfg.block_size, cfg.n_blocks, bias=cfg.bias)
+        elif cfg.projection == "block":
+            self.proj = Attention(cfg)
+
+        self.linear = nn.Linear(cfg.hidden, cfg.hidden)
 
     def forward(self, x, mask=None):
-
         n, t, d = x.size()
-
         x = self.linear(x)
+
         if mask is not None:
             x = x*mask.unsqueeze(-1)
 
@@ -182,7 +209,7 @@ class Projection(nn.Module):
             x = self.proj(x)
 
         if self.projection in ["gru", "lstm"]:
- 
+
             x = self.pack_sequence(x, mask)
             if self.projection == "lstm":
                 _, (x, _) = self.proj(x)
@@ -195,7 +222,8 @@ class Projection(nn.Module):
         if self.projection == "block":
             x = x.reshape(n*self.n_blocks, t//self.n_blocks, d)
             new_mask = mask.reshape(n*self.n_blocks, t//self.n_blocks)
-            x = self.proj(compress_time(x, new_mask, keepdim=True), x, x, mask, new_mask)
+            x = self.proj(compress_time(
+                x, new_mask, keepdim=True), x, x, mask, new_mask)
             x = x.reshape(n, self.n_blocks, d)
 
         if mask is not None:
@@ -206,7 +234,6 @@ class Projection(nn.Module):
         return x, mask
 
     def pack_sequence(self, x, mask=None):
-        
         n, t, d = x.size()
 
         if mask is not None:
@@ -218,43 +245,42 @@ class Projection(nn.Module):
         x = x.reshape(n*self.n_blocks, t//self.n_blocks, d)
         x = torch.nn.utils.rnn.pack_padded_sequence(
             x, mask, batch_first=True, enforce_sorted=False)
-        
+
         return x
+
 
 class LinearAttention(nn.Module):
 
     def __init__(self, cfg):
-
         super().__init__()
-
         self.cfg = cfg
 
         if cfg.inner_attn:
-            self.proj = Projection(cfg.hidden, cfg.hidden, cfg.n_blocks, cfg.block_size, cfg.dropout, cfg.projection)
-            self.proj_attn = Attention(cfg.hidden, cfg.hidden, cfg.n_heads, cfg.dropout, cfg.bias)
+            self.proj = Projection(cfg)
+            self.proj_attn = Attention(cfg)
         else:
-            self.proj_k = Projection(cfg.hidden, cfg.hidden, cfg.n_blocks, cfg.block_size, cfg.dropout, cfg.projection)
-            self.proj_v = Projection(cfg.hidden, cfg.hidden, cfg.n_blocks, cfg.block_size, cfg.dropout, cfg.projection)
-            
-        self.output_attn = Attention(cfg.hidden, cfg.hidden, cfg.n_heads, cfg.dropout, cfg.bias)
+            self.proj_k = Projection(cfg)
+            self.proj_v = Projection(cfg)
+
+        self.output_attn = Attention(cfg)
 
     def forward(self, x, mask=None):
-
         if self.cfg.inner_attn:
             x_proj, proj_mask = self.proj(x, mask)
-            x_proj = self.proj_attn(x_proj, x_proj, x_proj, proj_mask, proj_mask)
+            x_proj = self.proj_attn(
+                x_proj, x_proj, x_proj, proj_mask, proj_mask)
             x = self.output_attn(x, x_proj, x_proj, proj_mask, mask)
         else:
             x_proj_k, proj_mask = self.proj_k(x, mask)
-            x_proj_z, proj_mask = self.proj_z(x, mask)
-            x = self.output_attn(x, x_proj_k, x_proj_z, proj_mask, mask)
-            
+            x_proj_v, proj_mask = self.proj_v(x, mask)
+            x = self.output_attn(x, x_proj_k, x_proj_v, proj_mask, mask)
+
         return x
+
 
 class TransformerLayer(nn.Module):
 
     def __init__(self, cfg, attn=None, pwff=None):
-
         super().__init__()
 
         if attn is not None:
@@ -268,7 +294,6 @@ class TransformerLayer(nn.Module):
             self.pwff = PointWiseFeedForward(cfg)
 
         self.proj = nn.Linear(cfg.hidden, cfg.hidden)
-        
 
         self.norm_1 = CustomLayerNorm(cfg)
         self.norm_2 = CustomLayerNorm(cfg)
@@ -280,8 +305,10 @@ class TransformerLayer(nn.Module):
 
         return x
 
+
 class Embeddings(nn.Module):
     "The embedding module from word, position and token_type embeddings."
+
     def __init__(self, cfg):
         super().__init__()
 
@@ -295,10 +322,10 @@ class Embeddings(nn.Module):
         x = self.proj(x)
         return self.norm(x)
 
+
 class Transformers(nn.Module):
 
     def __init__(self, cfg):
-
         super().__init__()
 
         self.attn = LinearAttention(cfg)
@@ -315,35 +342,34 @@ class Transformers(nn.Module):
 
         if cfg.share_all:
             transformer = Transformer(cfg)
-            self.transformers = nn.ModuleList([transformer for _ in range(cfg.n_layers)])
+            self.transformers = nn.ModuleList(
+                [transformer for _ in range(cfg.n_layers)])
         else:
-            self.transformers = nn.ModuleList([TransformerLayer(cfg, attn, pwff) for _ in range(cfg.n_layers)])
+            self.transformers = nn.ModuleList(
+                [TransformerLayer(cfg, attn, pwff) for _ in range(cfg.n_layers)])
 
     def forward(self, x, mask):
-
         for transformer in self.transformers:
             x = transformer(x, mask)
-
         return x
 
 class BertInner(nn.Module):
 
     def __init__(self, cfg):
-
         super().__init__()
 
         self.embedding = Embeddings(cfg)
         self.transformers = Transformers(cfg)
 
         # decoder is shared with embedding layer
-        ## project hidden layer to embedding layer
+        # project hidden layer to embedding layer
         embed_weight2 = self.embedding.proj.weight
         n_hidden, n_embedding = embed_weight2.size()
         self.decoder1 = nn.Linear(n_hidden, n_embedding, bias=False)
         self.decoder1.weight.data = embed_weight2.data.t()
         self.decoder1_bias = nn.Parameter(torch.zeros(n_embedding))
 
-        ## project embedding layer to vocabulary layer
+        # project embedding layer to vocabulary layer
         embed_weight1 = self.embedding.embedding.weight
         n_vocab, n_embedding = embed_weight1.size()
         self.decoder2 = nn.Linear(n_embedding, n_vocab, bias=False)
@@ -361,7 +387,7 @@ class BertInner(nn.Module):
         labels_mask = labels_mask.reshape(n*t).bool() == True
         x = x.reshape(n*t, -1)[labels_mask]
         labels = labels.reshape(n*t)[labels_mask]
-        
+
         x = self.decoder1(x) + self.decoder1_bias
         x = self.decoder2(x) + self.decoder2_bias
 

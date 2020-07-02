@@ -1,13 +1,10 @@
-import numpy as np
-import torch
-import torch.nn as nn
 import argparse
-
 from utils import *
 from dataset import *
 from models import *
 from optim import *
 from train import *
+import torch_optimizer
 
 def main(args):
 
@@ -21,7 +18,9 @@ def main(args):
     model = BertInner(model_cfg)
 
     if train_cfg.optimizer == "lamb":
-        optimizer = Lamb(model.parameters(), lr=train_cfg.lr)
+        optimizer = torch_optimizer.Lamb(model.parameters(), lr=train_cfg.lr, weight_decay=train_cfg.weigth_decay)
+    elif train_cfg.optimizer == "radam":
+        optimizer = torch_optimizer.RAdam(model.parameters(), lr=train_cfg.lr, weight_decay=train_cfg.weigth_decay)
     else:
         optimizer = optim4GPU(train_cfg, model)
 

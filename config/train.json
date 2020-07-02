@@ -8,9 +8,10 @@
     "mask_prob": 0.15,
 
     "warmup": 0.1,
-    "save_steps": 20,
-    "total_steps": 1000000,
+    "save_steps": 1000,
+    "total_steps": 100000,
     
-    "optimizer": "lamb",
+    "optimizer": "radam",
+    "weigth_decay": 0.01, 
     "parallele": true
 }

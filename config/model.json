@@ -12,6 +12,8 @@
 
 	"projection": "mean",
 	"inner_attn": true,
+	"efficient_attn": true,
+	"scaled_attn": true,
 
 	"dropout": 0.0,
 	"bias": false,
