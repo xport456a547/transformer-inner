@@ -10,6 +10,7 @@ def main(args):
 
     train_cfg = config_from_json(args.train_cfg)
     model_cfg = config_from_json(args.model_cfg)
+    model_cfg.block_size = model_cfg.max_len // model_cfg.n_blocks
 
     set_seeds(train_cfg.seed)
 

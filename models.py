@@ -59,13 +59,14 @@ class Attention(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         assert cfg.hidden % cfg.n_heads == 0, "hidden must be divisible by n_heads"
+        assert cfg.hidden_attn % cfg.n_heads == 0, "hidden_attn must be divisible by n_heads"
 
         self.n_heads = cfg.n_heads
         self.efficient_attn = cfg.efficient_attn
         self.scaled_attn = cfg.scaled_attn
 
-        self.proj_q = nn.Linear(cfg.hidden, cfg.hidden, bias=cfg.bias)
-        self.proj_k = nn.Linear(cfg.hidden, cfg.hidden, bias=cfg.bias)
+        self.proj_q = nn.Linear(cfg.hidden, cfg.hidden_attn, bias=cfg.bias)
+        self.proj_k = nn.Linear(cfg.hidden, cfg.hidden_attn, bias=cfg.bias)
         self.proj_v = nn.Linear(cfg.hidden, cfg.hidden, bias=cfg.bias)
 
         self.dropout_q = nn.Dropout(cfg.dropout)
