@@ -1,5 +1,5 @@
 {
-    "seed": 3431,
+    "seed": 7,
     "batch_size": 8,
     "lr": 1e-4,
     "n_epochs": 25,
@@ -12,7 +12,7 @@
     "save_steps": 1000,
     "total_steps": 100000,
     
-    "optimizer": "",
+    "optimizer": "lamb",
     "weigth_decay": 0.01, 
     "parallele": true
 }

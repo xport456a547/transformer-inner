@@ -72,6 +72,7 @@ class Attention(nn.Module):
         self.dropout_q = nn.Dropout(cfg.dropout)
         self.dropout_k = nn.Dropout(cfg.dropout)
         self.dropout_v = nn.Dropout(cfg.dropout)
+        self.drop_attn = nn.Dropout(cfg.dropout_attn)
 
     def forward(self, q, k, v, mask_q=None, mask_attn=None, mask_out=None):
         q = self.dropout_q(self.proj_q(q))
@@ -97,7 +98,7 @@ class Attention(nn.Module):
                     q = q * mask_q[:, None, :, None].float()
 
                 k = k / t
-                output = k.transpose(-1, -2) @ v
+                output = self.drop_attn(k.transpose(-1, -2) @ v)
                 output = q @ output
 
             else:
@@ -108,7 +109,7 @@ class Attention(nn.Module):
                     q = q - 10000 * (1.0 - mask_q[:, None, :, None].float())
 
                 k = torch.softmax(k, dim=-2)
-                output = k.transpose(-1, -2) @ v
+                output = self.drop_attn(k.transpose(-1, -2) @ v)
                 output = torch.softmax(q, dim=-1) @ output
 
         else:
@@ -119,7 +120,7 @@ class Attention(nn.Module):
                 if mask_q is not None:
                     q = q * mask_q[:, None, :, None].float()
 
-                output = (q @ k.transpose(-1, -2)) / t
+                output = self.drop_attn((q @ k.transpose(-1, -2)) / t)
                 output = (output @ v)
 
             else:
@@ -128,7 +129,7 @@ class Attention(nn.Module):
                 if mask_attn is not None:
                     output = output - 10000.0 * \
                         (1.0 - mask_attn[:, None, None, :].float())
-                output = torch.softmax(output, dim=-1)
+                output = self.drop_attn(torch.softmax(output, dim=-1))
                 output = (output @ v)
 
         n, h, t, d = output.size()
@@ -304,11 +305,11 @@ class TransformerLayer(nn.Module):
         self.norm_2 = CustomLayerNorm(cfg)
 
     def forward(self, x, mask):
-        x = self.attn(x, mask)
-        x = self.norm_1(x + self.proj(x))
-        x = self.norm_2(x + self.pwff(x))
+        h = self.attn(x, mask)
+        h = self.norm_1(x + self.proj(h))
+        h = self.norm_2(h + self.pwff(h))
 
-        return x
+        return h
 
 class Embeddings(nn.Module):
     "The embedding module from word, position and token_type embeddings."
@@ -319,12 +320,29 @@ class Embeddings(nn.Module):
         self.embedding = nn.Embedding(cfg.vocab_size, cfg.embedding)
         self.proj = nn.Linear(cfg.embedding, cfg.hidden)
         self.norm = CustomLayerNorm(cfg)
+        self.dropout = nn.Dropout(cfg.dropout)
+
+        self.positional_embedding = cfg.positional_embedding
+
+        if cfg.positional_embedding:
+            self.pos_embedding = nn.Embedding(cfg.max_len, cfg.hidden)
 
     def forward(self, x):
-
+        
+        n, t = x.size()
+        
         x = self.embedding(x)
-        x = self.proj(x)
-        return self.norm(x)
+        x = self.proj(x) 
+
+        if self.positional_embedding:
+            self.pos = torch.arange(t, device=x.device)
+            self.pos = self.pos.unsqueeze(0).expand_as(x[:,:,0]) 
+            self.pos = self.pos_embedding(self.pos)
+            x = x + self.pos
+        else:
+            self.pos = None
+
+        return self.dropout(self.norm(x))
 
 class Transformers(nn.Module):
 
@@ -358,6 +376,8 @@ class BertInner(nn.Module):
 
         self.embedding = Embeddings(cfg)
         self.transformers = Transformers(cfg)
+        self.proj = nn.Linear(cfg.hidden, cfg.hidden)
+        self.norm = CustomLayerNorm(cfg)
 
         # decoder is shared with embedding layer
         # project hidden layer to embedding layer
@@ -379,7 +399,8 @@ class BertInner(nn.Module):
 
     def forward(self, x, mask, labels, labels_mask):
         x = self.embedding(x)
-        x = self.transformers(x, mask)
+        x = self.transformers(x, mask) 
+        x = self.norm(gelu(self.proj(x)))
 
         n, t = labels.size()
         labels_mask = labels_mask.reshape(n*t).bool() == True
@@ -389,7 +410,7 @@ class BertInner(nn.Module):
         x = self.decoder1(x) + self.decoder1_bias
         x = self.decoder2(x) + self.decoder2_bias
 
-        return self.lm_loss(x, labels)
+        return self.lm_loss(x, labels), x, labels
 
     def lm_loss(self, outputs, labels):
         return self.criterion(outputs, labels)

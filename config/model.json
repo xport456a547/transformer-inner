@@ -4,11 +4,12 @@
 
 	"hidden": 768,
 	"hidden_ff": 3072,
-	"hidden_attn": 192,
+	"hidden_attn": 384,
 	"n_heads": 12,
 
 	"max_len": 2048,
 	"n_blocks": 128,
+	"positional_embedding": true,
 
 	"projection": "mean",
 	"inner_attn": true,
@@ -16,6 +17,7 @@
 	"scaled_attn": false,
 
 	"dropout": 0.0,
+	"dropout_attn": 0.0,
 	"bias": false,
 
 	"share_pwff": true,
