@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.nn import *
 import torch.nn.functional as F
 import math
+from sklearn.metrics import accuracy_score
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -74,7 +75,10 @@ class Attention(nn.Module):
         self.dropout_v = nn.Dropout(cfg.dropout)
         self.drop_attn = nn.Dropout(cfg.dropout_attn)
 
+        #self.drop_attn = cfg.dropout_attn
+
     def forward(self, q, k, v, mask_q=None, mask_attn=None, mask_out=None):
+
         q = self.dropout_q(self.proj_q(q))
         k = self.dropout_k(self.proj_k(k))
         v = self.dropout_v(self.proj_v(v))
@@ -97,9 +101,9 @@ class Attention(nn.Module):
                 if mask_attn is not None:
                     q = q * mask_q[:, None, :, None].float()
 
-                k = k / t
-                output = self.drop_attn(k.transpose(-1, -2) @ v)
-                output = q @ output
+                k = self.drop_attn(k / t)
+                output = k.transpose(-1, -2) @ v
+                output = self.drop_attn(q) @ output
 
             else:
 
@@ -108,9 +112,9 @@ class Attention(nn.Module):
                 if mask_q is not None:
                     q = q - 10000 * (1.0 - mask_q[:, None, :, None].float())
 
-                k = torch.softmax(k, dim=-2)
-                output = self.drop_attn(k.transpose(-1, -2) @ v)
-                output = torch.softmax(q, dim=-1) @ output
+                k = self.drop_attn(torch.softmax(k, dim=-2))
+                output = k.transpose(-1, -2) @ v
+                output = self.drop_attn(torch.softmax(q, dim=-1)) @ output
 
         else:
 
@@ -322,10 +326,20 @@ class Embeddings(nn.Module):
         self.norm = CustomLayerNorm(cfg)
         self.dropout = nn.Dropout(cfg.dropout)
 
+        self.cfg = cfg
+
         self.positional_embedding = cfg.positional_embedding
+        self.block_positional_embedding = cfg.block_positional_embedding
+        self.inner_block_positional_embedding = cfg.inner_block_positional_embedding
 
         if cfg.positional_embedding:
             self.pos_embedding = nn.Embedding(cfg.max_len, cfg.hidden)
+
+        if cfg.block_positional_embedding:
+            self.block_pos_embedding = nn.Embedding(cfg.n_blocks, cfg.hidden)
+
+        if cfg.inner_block_positional_embedding:
+            self.inner_block_pos_embedding = nn.Embedding(cfg.block_size, cfg.hidden)
 
     def forward(self, x):
         
@@ -335,12 +349,22 @@ class Embeddings(nn.Module):
         x = self.proj(x) 
 
         if self.positional_embedding:
-            self.pos = torch.arange(t, device=x.device)
-            self.pos = self.pos.unsqueeze(0).expand_as(x[:,:,0]) 
-            self.pos = self.pos_embedding(self.pos)
-            x = x + self.pos
-        else:
-            self.pos = None
+            pos = torch.arange(t, device=x.device)
+            pos = pos.unsqueeze(0).expand_as(x[:,:,0]) 
+            pos = self.pos_embedding(pos)
+            x = x + pos
+
+        if self.block_positional_embedding:
+            pos = torch.cat([torch.ones(self.cfg.block_size) * i for i in range(self.cfg.n_blocks)]).to(x.device).long()
+            pos = pos.unsqueeze(0).expand_as(x[:,:,0]) 
+            pos = self.block_pos_embedding(pos)
+            x = x + pos
+
+        if self.inner_block_positional_embedding:
+            pos = torch.cat([torch.arange(self.cfg.block_size) for i in range(self.cfg.n_blocks)]).to(x.device).long()
+            pos = pos.unsqueeze(0).expand_as(x[:,:,0]) 
+            pos = self.inner_block_pos_embedding(pos)
+            x = x + pos
 
         return self.dropout(self.norm(x))
 
@@ -348,6 +372,8 @@ class Transformers(nn.Module):
 
     def __init__(self, cfg):
         super().__init__()
+
+        self.embedding = Embeddings(cfg)
 
         if cfg.share_all:
             transformer = TransformerLayer(cfg)
@@ -365,30 +391,30 @@ class Transformers(nn.Module):
                 [TransformerLayer(cfg, attn, pwff) for _ in range(cfg.n_layers)])
 
     def forward(self, x, mask):
+        x = self.embedding(x)
         for transformer in self.transformers:
             x = transformer(x, mask)
         return x
 
-class BertInner(nn.Module):
+class BertInnerPreTrain(nn.Module):
 
     def __init__(self, cfg):
         super().__init__()
 
-        self.embedding = Embeddings(cfg)
         self.transformers = Transformers(cfg)
         self.proj = nn.Linear(cfg.hidden, cfg.hidden)
         self.norm = CustomLayerNorm(cfg)
 
         # decoder is shared with embedding layer
         # project hidden layer to embedding layer
-        embed_weight2 = self.embedding.proj.weight
+        embed_weight2 = self.transformers.embedding.proj.weight
         n_hidden, n_embedding = embed_weight2.size()
         self.decoder1 = nn.Linear(n_hidden, n_embedding, bias=False)
         self.decoder1.weight.data = embed_weight2.data.t()
         self.decoder1_bias = nn.Parameter(torch.zeros(n_embedding))
 
         # project embedding layer to vocabulary layer
-        embed_weight1 = self.embedding.embedding.weight
+        embed_weight1 = self.transformers.embedding.embedding.weight
         n_vocab, n_embedding = embed_weight1.size()
         self.decoder2 = nn.Linear(n_embedding, n_vocab, bias=False)
         self.decoder2.weight = embed_weight1
@@ -398,7 +424,7 @@ class BertInner(nn.Module):
         self.criterion = nn.CrossEntropyLoss()
 
     def forward(self, x, mask, labels, labels_mask):
-        x = self.embedding(x)
+        
         x = self.transformers(x, mask) 
         x = self.norm(gelu(self.proj(x)))
 
@@ -414,3 +440,24 @@ class BertInner(nn.Module):
 
     def lm_loss(self, outputs, labels):
         return self.criterion(outputs, labels)
+
+class BertInnerFineTune(nn.Module):
+
+    def __init__(self, cfg, n_labels):
+        super().__init__()
+
+        self.transformers = Transformers(cfg)
+        self.fc = nn.Linear(cfg.hidden, cfg.hidden)
+        self.activ = nn.Tanh()
+        self.drop = nn.Dropout(cfg.dropout)
+        self.classifier = nn.Linear(cfg.dim, n_labels)
+
+    def forward(self, x, mask, many_to_one=True):
+        x = self.transformers(x, mask)
+        if many_to_one:
+            x = x[:,0]
+        x = self.activ(self.fc(x))
+        x = self.classifier(self.drop(x))
+        return x
+
+        

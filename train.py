@@ -3,10 +3,9 @@ import torch.nn as nn
 from tqdm import tqdm
 from sklearn.metrics import accuracy_score
 
-
 class Trainer(object):
 
-    def __init__(self, loader, model, optimizer, save_dir, device, parallele):
+    def __init__(self, loader, model, optimizer, save_dir, device, parallel):
 
         self.loader = loader
         self.model = model.to(device)
@@ -18,7 +17,7 @@ class Trainer(object):
         self.device = device
         self.global_step = 0
 
-        if parallele:
+        if parallel:
             self.model = nn.DataParallel(self.model)
 
     def train(self, train_cfg):
@@ -41,6 +40,7 @@ class Trainer(object):
 
                 loss, outputs, labels = self.model(
                     inputs, attn_mask, labels, labels_mask)
+
                 loss = (loss / train_cfg.accumulation_steps).mean()
                 loss.backward()
 
@@ -48,8 +48,7 @@ class Trainer(object):
                     self.optimizer.step()
                     self.optimizer.zero_grad()
 
-                acc = accuracy_score(
-                    labels.cpu().detach().numpy(), torch.argmax(outputs, dim=-1).cpu().detach().numpy())
+                acc = self.get_acc(outputs, labels)
                 loss_sum += loss.item()
                 acc_sum += acc
 
@@ -62,7 +61,7 @@ class Trainer(object):
 
                 if train_cfg.total_steps and train_cfg.total_steps < self.global_step:
                     print('Epoch %d/%d : Average Loss %5.3f' %
-                          (e+1, train_cfg.n_epochs, loss_sum/(i+1)))
+                          (epoch+1, train_cfg.n_epochs, loss_sum/(i+1)))
                     print('The Total Steps have been reached.')
                     self.save_model()
                     return
@@ -91,3 +90,6 @@ class Trainer(object):
 
         if load_dataset_state:
             self.loader.set_dataset_state(*checkpoint["dataset_state"])
+
+    def get_acc(self, outputs, labels):
+        return accuracy_score(labels.cpu().detach().numpy(), torch.argmax(outputs, dim=-1).cpu().detach().numpy())

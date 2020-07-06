@@ -16,7 +16,7 @@ def main(args):
 
     print("Loading dataset")
     loader = PreTrainDataset(args.data_file, train_cfg, model_cfg)
-    model = BertInner(model_cfg)
+    model = BertInnerPreTrain(model_cfg)
 
     if train_cfg.optimizer == "lamb":
         optimizer = torch_optimizer.Lamb(model.parameters(), lr=train_cfg.lr, weight_decay=train_cfg.weigth_decay)
@@ -25,7 +25,7 @@ def main(args):
     else:
         optimizer = optim4GPU(train_cfg, model)
 
-    trainer = Trainer(loader, model, optimizer, args.save_dir, get_device(), train_cfg.parallele)
+    trainer = Trainer(loader, model, optimizer, args.save_dir, get_device(), train_cfg.parallel)
 
     if args.load_dir != "":
         print("Loading checkpoint")
@@ -36,6 +36,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='PyTorch ALBERT Language Model')
     parser.add_argument('--data_file', type=str, default='./data/sample.txt')
+
     parser.add_argument('--train_cfg', type=str, default='./config/train.json')
     parser.add_argument('--model_cfg', type=str, default='./config/model.json')
 
