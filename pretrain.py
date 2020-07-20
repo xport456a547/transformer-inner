@@ -41,7 +41,6 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Language Model')
     parser.add_argument('--data_file', type=str, default='./data/sample.txt')
-    #parser.add_argument('--data_file', type=str, default='/data/dataset/unlabeled/wiki/stacked.txt')
 
     parser.add_argument('--train_cfg', type=str, default='./config/train.json')
     parser.add_argument('--model_cfg', type=str, default='./config/model.json')

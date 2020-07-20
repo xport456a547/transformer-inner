@@ -35,7 +35,6 @@ def main(args):
 
     
     print("Loading dataset")
-    #data_file = get_filename(args.data_file, train_cfg.task)
     (data, labels), criterion = get_data_and_optimizer_from_dataset(args.data_file, train_cfg.task)
 
     loader = GlueDataset(data, labels, train_cfg, model_cfg)
@@ -73,7 +72,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_cfg', type=str, default='./config/model.json')
 
     parser.add_argument('--save_dir', type=str, default='./saved_models/bert_inner_eval')
-    parser.add_argument('--load_model', type=str, default='./saved_models/bert_inner_steps_180000')
+    parser.add_argument('--load_model', type=str, default='')
     parser.add_argument('--load_dataset_state', action='store_true')
     parser.add_argument('--eval', action='store_true')
 
