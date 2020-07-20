@@ -1,34 +1,33 @@
 {
-	"embedding" : 128,
+	"tokenizer_prefix": "bert-base-cased",
+
+	"embedding_factorization" : 128,
 	"n_layers": 12,
 
 	"hidden": 768,
 	"hidden_ff": 3072,
-	"hidden_attn": 192,
+	"hidden_attn": 768,
 	"n_heads": 12,
 
-	"max_len": 2048,
-	"n_blocks": 128,
+	"max_len": 1536,
+	"n_blocks": 256,
 	
-	"positional_embedding": false,
-	"block_positional_embedding": true,
-	"inner_block_positional_embedding": true,
+	"positional_embedding": true,
+	"block_positional_embedding": false,
+	"inner_block_positional_embedding": false,
 
 	"projection": "mean",
 	"inner_attn": true,
 	"efficient_attn": true,
-	"scaled_attn": false,
+	"outer_attn": "",
+	"attn_skip_connection": false,
 
 	"dropout": 0.0,
 	"dropout_attn": 0.0,
-	"bias": false,
+	"bias": true,
 
 	"share_pwff": false,
 	"share_attn": false,
-	"share_all": false,
-
-	"vocab_size": 50265,
-	"mask_id": 50264
-
+	"share_all": false
 }
 

@@ -2,21 +2,19 @@
     "opt_level": "O1",
     "seed": 7,
     "batch_size": 8,
-    "lr": 1e-4,
-    "n_epochs": 25,
+    "lr": 2e-5,
+    "n_epochs": 10,
     "accumulation_steps": 4,
 
-    "mask_prob": 0.15,
-    "keep_prob": 0.10,
-    "mask_masked_tokens_in_attn": false,
-
     "warmup": 0.1,
-    "save_steps": 5000,
+    "save_steps": 10000,
     "total_steps": 250000,
     
     "optimizer": "lamb",
     "optimizer_parameters": {"lr": 1e-4, "weight_decay": 0.01},
 
     "weigth_decay": 0.00, 
-    "parallel": true
+    "parallel": true,
+
+    "task": "mrpc"
 }
