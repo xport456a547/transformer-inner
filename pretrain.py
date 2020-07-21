@@ -15,7 +15,13 @@ def main(args):
     set_seeds(train_cfg.seed)
 
     print("Loading dataset")
-    loader = PreTrainDataset(args.data_file, train_cfg, model_cfg)
+    loader_train = PreTrainDataset(args.data_file, train_cfg, model_cfg)
+
+    eval_config = train_cfg
+    eval_config.autoregressive = True
+    eval_config.randomize = False
+
+    loader_eval  = PreTrainDataset(args.data_eval_file, train_cfg, model_cfg)
 
     model = BertInnerForMaskedLM(model_cfg)
 
@@ -30,7 +36,7 @@ def main(args):
     else:
         optimizer = optim4GPU(train_cfg, model)
 
-    trainer = Trainer(loader, model, optimizer, args.save_dir, get_device(), train_cfg.parallel, train_cfg.opt_level)
+    trainer = Trainer(loader_train, loader_eval, model, optimizer, args.save_dir, get_device(), train_cfg.parallel, train_cfg.opt_level)
 
     if args.load_model != "":
         print("Loading checkpoint")
@@ -52,5 +58,12 @@ if __name__ == '__main__':
     parser.add_argument('--log_dir', type=str, default='./log')
 
     args = parser.parse_args()
+    '''
+    args.data_file = '/data/xp/transformer_inner/test.data'
+    args.data_eval_file = '/data/xp/transformer_inner/test.data'
+
+    args.data_file = '/data/xp/transformer_inner/text8/text8.train.modif'
+    args.data_eval_file = '/data/xp/transformer_inner/text8/text8.valid.modif'
+    '''
     main(args=args)
 

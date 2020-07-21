@@ -5,6 +5,7 @@ import random
 from random import randint
 import torch
 
+
 class PreTrainDataset(object):
 
     def __init__(self, path, train_cfg, model_cfg):
@@ -14,7 +15,7 @@ class PreTrainDataset(object):
         except:
             print("Loading custom tokenizer")
             self.tokenizer = self.load_custom_tokenizer(model_cfg.tokenizer_prefix)
-        
+
         self.mask_id = self.tokenizer.convert_tokens_to_ids(
             self.tokenizer.mask_token)
         model_cfg.vocab_size = len(self.tokenizer)
@@ -33,14 +34,22 @@ class PreTrainDataset(object):
         self.step = 0
         self.dataset_indexes = [i for i in range(self.dataset_size)]
         self.reset_epoch()
+        self.autoregressive = train_cfg.autoregressive if 'autoregressive' in train_cfg else False
+        self.randomize = train_cfg.randomize if 'randomize' in train_cfg else False
+
+    def __len__(self):
+        return int(self.dataset_size / self.batch_size)
+
 
     def __iter__(self):
 
         while self.step < self.dataset_size - torch.cuda.device_count():
 
             data = self.data[self.step: self.step + self.batch_size]
-            data = [d.split("\n") for d in data]
-            data = [" ".join(d[randint(0, len(d) - 1):]) for d in data]
+
+            if self.randomize:
+                data = [d.split("\n") for d in data]
+                data = [" ".join(d[randint(0, len(d) - 1):]) for d in data]
 
             batch_size = len(data)
             if batch_size % torch.cuda.device_count() != 0:
@@ -50,18 +59,37 @@ class PreTrainDataset(object):
 
             data = self.tokenizer(data, max_length=self.max_len,
                                   padding='max_length', truncation=True, return_tensors="pt")
-
             label_mask = torch.zeros(batch_size, self.max_len).float()
-            for i in range(batch_size):
-                indices = torch.randperm(self.max_len)[:self.max_masked_words]
-                label_mask[i, indices] += 1.
 
-            label_mask *= data["attention_mask"]
-            keep_mask = label_mask * \
-                torch.bernoulli(torch.ones_like(label_mask) - self.keep_prob)
+            if not self.autoregressive:
+                for i in range(batch_size):
+                    indices = torch.randperm(self.max_len)[:self.max_masked_words]
+                    label_mask[i, indices] += 1.
+
+                label_mask *= data["attention_mask"]
+                keep_mask = label_mask * \
+                            torch.bernoulli(torch.ones_like(label_mask) - self.keep_prob)
+
+            else:  # autoregressive
+
+                self.mask_masked_tokens_in_attn = True
+
+                for i in range(batch_size):
+                    end_seq_idx = self.max_len-1
+                    for j, id_ in enumerate(data["input_ids"][i]):
+                        if id_ == 0:
+                            end_seq_idx = j-1
+                            break
+                    # we remove the character corresponding to </s>
+                    data["input_ids"][i][end_seq_idx] = 0
+                    data["attention_mask"][i][end_seq_idx] = 0
+                    label_mask[i, [end_seq_idx-1]] += 1.
+
+                label_mask *= data["attention_mask"]
+                keep_mask = label_mask
 
             input_ids = data["input_ids"] * \
-                (1 - keep_mask) + keep_mask * self.mask_id
+                        (1 - keep_mask) + keep_mask * self.mask_id
             label = data["input_ids"] * label_mask
             attn_mask = data["attention_mask"].float()
 
@@ -96,7 +124,11 @@ class PreTrainDataset(object):
             ("</s>", tokenizer.token_to_id("</s>")),
             ("<s>", tokenizer.token_to_id("<s>")),
         )
-        return PreTrainedTokenizerFast(tokenizer, pad_token="<pad>", mask_token="<mask>", unk_token="<unk>", bos_token="<s>", eos_token="</s>")
+        return PreTrainedTokenizerFast(tokenizer, pad_token="<pad>", mask_token="<mask>", unk_token="<unk>",
+                                       bos_token="<s>", eos_token="</s>")
+
+
+
 
 
 class GlueDataset(object):
@@ -130,7 +162,7 @@ class GlueDataset(object):
 
         self.step = 0
         self.dataset_indexes = [i for i in range(self.dataset_size)]
-        #self.reset_epoch()
+        # self.reset_epoch()
 
     def __iter__(self):
 
@@ -190,4 +222,5 @@ class GlueDataset(object):
             ("</s>", tokenizer.token_to_id("</s>")),
             ("<s>", tokenizer.token_to_id("<s>")),
         )
-        return PreTrainedTokenizerFast(tokenizer, pad_token="<pad>", mask_token="<mask>", unk_token="<unk>", bos_token="<s>", eos_token="</s>")
+        return PreTrainedTokenizerFast(tokenizer, pad_token="<pad>", mask_token="<mask>", unk_token="<unk>",
+                                       bos_token="<s>", eos_token="</s>")
