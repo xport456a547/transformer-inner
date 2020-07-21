@@ -35,7 +35,7 @@ class PreTrainDataset(object):
         self.dataset_indexes = [i for i in range(self.dataset_size)]
         self.reset_epoch()
         self.autoregressive = train_cfg.autoregressive if 'autoregressive' in train_cfg else False
-        self.randomize = train_cfg.randomize if 'randomize' in train_cfg else False
+        self.randomize = train_cfg.randomize_data if 'randomize_data' in train_cfg else False
 
     def __len__(self):
         return int(self.dataset_size / self.batch_size)

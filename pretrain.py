@@ -8,20 +8,25 @@ import torch_optimizer
 import apex
 
 def main(args):
-    
+
     train_cfg = config_from_json(args.train_cfg)
     model_cfg = config_from_json(args.model_cfg)
     model_cfg.block_size = model_cfg.max_len // model_cfg.n_blocks
+
+    eval_config = Namespace(**vars(train_cfg))
+    eval_config.autoregressive = True
+    eval_config.randomize_data = False
+
     set_seeds(train_cfg.seed)
 
-    print("Loading dataset")
-    loader_train = PreTrainDataset(args.data_file, train_cfg, model_cfg)
 
-    eval_config = train_cfg
-    eval_config.autoregressive = True
-    eval_config.randomize = False
+    print('train',train_cfg)
+    print('eval', eval_config)
+    print('model', model_cfg)
 
-    loader_eval  = PreTrainDataset(args.data_eval_file, train_cfg, model_cfg)
+    print("Loading datasets")
+    loader_train = PreTrainDataset(args.data_train, train_cfg, model_cfg)
+    loader_eval  = PreTrainDataset(args.data_valid, eval_config, model_cfg)
 
     model = BertInnerForMaskedLM(model_cfg)
 
@@ -46,7 +51,8 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Language Model')
-    parser.add_argument('--data_file', type=str, default='./data/sample.txt')
+    parser.add_argument('--data_train', type=str, default='./data/sample.txt')
+    parser.add_argument('--data_valid', type=str, default='./data/sample.txt')
 
     parser.add_argument('--train_cfg', type=str, default='./config/train.json')
     parser.add_argument('--model_cfg', type=str, default='./config/model.json')
@@ -58,12 +64,13 @@ if __name__ == '__main__':
     parser.add_argument('--log_dir', type=str, default='./log')
 
     args = parser.parse_args()
+
     '''
     args.data_file = '/data/xp/transformer_inner/test.data'
     args.data_eval_file = '/data/xp/transformer_inner/test.data'
 
     args.data_file = '/data/xp/transformer_inner/text8/text8.train.modif'
-    args.data_eval_file = '/data/xp/transformer_inner/text8/text8.valid.modif'
+    args.data_eval_file = '/data/xp/transformer_inner/text8/text8.valid.modif.tiny'
     '''
     main(args=args)
 

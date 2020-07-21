@@ -46,10 +46,17 @@ with open('/tmp/text8.train.modif', 'w') as f:
         seq_count += 1
     print("seq_count: ", seq_count)
 
+'''
 seq_length = 1024
 nb_pred_seq = 12
 step_size = 256
-for fn, data in [("/tmp/text8.valid.modif", valid_data), ("/tmp/text8.test.modif", test_data)]:
+'''
+
+seq_length = 2048
+nb_pred_seq = 512
+step_size = 512
+
+for fn, data in [("/data/tmp/text8.valid.modif", valid_data), ("/data/tmp/text8.test.modif", test_data)]:
 
     with open(fn, 'w') as f:
         start = 0
@@ -61,7 +68,7 @@ for fn, data in [("/tmp/text8.valid.modif", valid_data), ("/tmp/text8.test.modif
             #print(seq)
             for i in range(nb_pred_seq):
                 sub_seq = seq[:-i]
-                f.write(sub_seq+"\n\n")
+                #f.write(sub_seq+"\n\n")
             seq_count += 1
         print("seq_count: ", seq_count)
         print("total : ", seq_count*nb_pred_seq)

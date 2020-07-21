@@ -107,8 +107,8 @@ class Trainer(object):
 
                     iter_bar.set_description('[Eval] Iter (loss=%5.3f accuracy=%5.3f bpc=%5.3f)' % (loss.item(), acc, loss.item() / math.log(2)))
 
-            ep_loss = loss_sum_eval / (i + 1) / (i + 1)
-            ep_acc = acc_sum_eval / (i + 1) / (i + 1)
+            ep_loss = loss_sum_eval / (i + 1)
+            ep_acc = acc_sum_eval / (i + 1)
             ep_bpc = ep_loss / math.log(2)
             print('[Eval] Epoch %d/%d : Average Loss: %5.3f Average Acc: %5.3f BPC: %5.3f' %
                   (epoch + 1, train_cfg.n_epochs, ep_loss, ep_acc, ep_bpc))
