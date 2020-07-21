@@ -68,7 +68,7 @@ class Trainer(object):
 
                 self.global_step += 1
 
-                iter_bar.set_description('[Train] Iter (loss=%5.3f accuracy=%5.3f bpc=%5.3f)' % (loss.item()*train_cfg.accumulation_steps, acc, loss.item()*train_cfg.accumulation_steps / math.log(2)))
+                iter_bar.set_description('[Train] Iter %d/%d (loss=%5.3f accuracy=%5.3f bpc=%5.3f)' % (epoch+1, train_cfg.n_epochs, loss.item()*train_cfg.accumulation_steps, acc, loss.item()*train_cfg.accumulation_steps / math.log(2)))
 
                 if self.global_step % train_cfg.save_steps == 0:
                     self.save_model()
@@ -105,7 +105,7 @@ class Trainer(object):
                     loss_sum_eval += loss.item()
                     acc_sum_eval += acc
 
-                    iter_bar.set_description('[Eval] Iter (loss=%5.3f accuracy=%5.3f bpc=%5.3f)' % (loss.item(), acc, loss.item() / math.log(2)))
+                    iter_bar.set_description('[Eval] Iter %d/%d (loss=%5.3f accuracy=%5.3f bpc=%5.3f)' % (epoch+1, train_cfg.n_epochs, loss.item(), acc, loss.item() / math.log(2)))
 
             ep_loss = loss_sum_eval / (i + 1)
             ep_acc = acc_sum_eval / (i + 1)
@@ -200,7 +200,7 @@ class GlueTrainer(object):
 
                 self.global_step += 1
 
-                iter_bar.set_description('Iter (loss=%5.3f accuracy=%5.3f)' % (loss.item() * train_cfg.accumulation_steps, acc))
+                iter_bar.set_description('Iter %d (loss=%5.3f accuracy=%5.3f)' % (epoch+1, loss.item() * train_cfg.accumulation_steps, acc))
 
                 if self.global_step % train_cfg.save_steps == 0:
                     self.save_model()
@@ -245,7 +245,7 @@ class GlueTrainer(object):
 
                 self.global_step += 1
 
-                iter_bar.set_description('Iter (loss=%5.3f accuracy=%5.3f)' % (loss.item(), acc))
+                iter_bar.set_description('Iter %d,  (loss=%5.3f accuracy=%5.3f)' % (epoch+1, loss.item(), acc))
 
                 if train_cfg.total_steps and train_cfg.total_steps < self.global_step:
                     print('Epoch %d/%d : Average Loss: %5.3f Average Acc: %5.3f' % (epoch+1, train_cfg.n_epochs, loss_sum/(i+1), acc_sum/(i+1)))
