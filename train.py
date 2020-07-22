@@ -139,6 +139,7 @@ class Trainer(object):
         checkpoint = torch.load(path)
         self.global_step = checkpoint["global_step"]
         self.model.load_state_dict(checkpoint["model_state_dict"])
+        checkpoint["optimizer_state_dict"]["param_groups"] = self.optimizer.state_dict()["param_groups"]
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 
         if load_dataset_state:
