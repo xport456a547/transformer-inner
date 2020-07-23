@@ -110,7 +110,7 @@ def main(args):
     model_cfg.vocab_size = len(tokenizer)
 
     loader_train = PreTrainDatasetTFW(args.data_train, tokenizer, train_cfg, model_cfg, is_train=True)
-    loader_eval = PreTrainDatasetTFW(args.data_train, tokenizer, train_cfg, model_cfg, is_train=False)
+    loader_eval = PreTrainDatasetTFW(args.data_valid, tokenizer, train_cfg, model_cfg, is_train=False)
 
     model = BertInnerForMaskedLM(model_cfg)
 
@@ -157,7 +157,7 @@ if __name__ == '__main__':
 
     args.data_train = '/data/xp/transformer_inner/text8/text8.train.modif'
     args.data_valid = '/data/xp/transformer_inner/text8/text8.valid.modif.tiny'
+    args.data_train = '/data/nlp/wikitext-103-raw/wiki.test.raw'
    '''
 
-    args.data_train = '/data/nlp/wikitext-103-raw/wiki.test.raw'
     main(args)
