@@ -77,7 +77,7 @@ class PreTrainDataset(object):
                 for i in range(batch_size):
                     end_seq_idx = self.max_len-1
                     for j, id_ in enumerate(data["input_ids"][i]):
-                        if id_ == 0:
+                        if id_ == self.tokenizer.pad_token_id:
                             end_seq_idx = j-1
                             break
                     # we remove the character corresponding to </s>
@@ -97,7 +97,6 @@ class PreTrainDataset(object):
                 attn_mask *= (1. - keep_mask)
 
             self.step += batch_size
-
             yield input_ids.long(), attn_mask.float(), label.long(), label_mask
 
     def reset_epoch(self):
