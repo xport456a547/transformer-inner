@@ -1,9 +1,9 @@
 {
     "opt_level": "O1",
     "seed": 7,
-    "batch_size": 20,
+    "batch_size": 140,
     "lr": 1e-4,
-    "n_epochs": 25,
+    "n_epochs": 10,
     "accumulation_steps": 4,
 
     "mask_prob": 0.15,
@@ -19,6 +19,7 @@
 
     "weigth_decay": 0.00, 
     "parallel": true,
+    "autoregressive" : true,
     "autoregressive" : true,
     "randomize_data" : true
 }
