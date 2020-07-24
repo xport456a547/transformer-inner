@@ -90,3 +90,5 @@ saved_models/bert_inner_steps_55000
 saved_models/bert_inner_steps_70000
 test.txt
 saved_models/bert_inner_steps_180000
+saved_models/bert_inner_steps_140000
+saved_models/bert_inner_steps_145000
