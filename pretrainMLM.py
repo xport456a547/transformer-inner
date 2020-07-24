@@ -127,7 +127,7 @@ def main(args):
     else:
         optimizer = optim4GPU(train_cfg, model)
 
-    trainer = Trainer(loader_train, loader_eval, model, optimizer, args.save_dir, get_device(), train_cfg.parallel,
+    trainer = Trainer(loader_train, model, optimizer, args.save_dir, get_device(), train_cfg.parallel,
                       train_cfg.opt_level)
 
     if args.load_model != "":
