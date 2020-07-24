@@ -1,26 +1,26 @@
 {
-	"tokenizer_prefix": "bert-base-cased",
+	"tokenizer_prefix": "roberta-base",
 
 	"embedding_factorization" : 128,
 	"n_layers": 12,
 
-	"hidden": 768,
-	"hidden_ff": 3072,
-	"hidden_attn": 768,
-	"n_heads": 12,
+	"hidden": 512,
+	"hidden_ff": 2048,
+	"hidden_attn": 512,
+	"n_heads": 8,
 
-	"max_len": 1536,
-	"n_blocks": 256,
+	"max_len": 512,
+	"n_blocks": 128,
 	
 	"positional_embedding": true,
 	"block_positional_embedding": false,
 	"inner_block_positional_embedding": false,
 
-	"projection": "mean",
+	"projection": "cnn",
 	"inner_attn": true,
-	"efficient_attn": true,
+	"efficient_attn": false,
 	"outer_attn": "",
-	"attn_skip_connection": false,
+	"attn_skip_connection": true,
 
 	"dropout": 0.0,
 	"dropout_attn": 0.0,

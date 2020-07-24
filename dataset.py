@@ -4,6 +4,7 @@ from tokenizers.processors import BertProcessing
 import random
 from random import randint
 import torch
+import re
 
 class PreTrainDataset(object):
 
@@ -19,7 +20,9 @@ class PreTrainDataset(object):
             self.tokenizer.mask_token)
         model_cfg.vocab_size = len(self.tokenizer)
 
-        self.data = open(path, "r", encoding="utf-8").read().split("\n\n")
+        self.data = open(path, "r", encoding="utf-8").read()
+        self.data = re.sub(r"\s?\n\s?", r"\n", self.data)
+        self.data = self.data.split("\n\n")
 
         self.batch_size = train_cfg.batch_size
         self.dataset_size = len(self.data)
@@ -40,7 +43,7 @@ class PreTrainDataset(object):
 
             data = self.data[self.step: self.step + self.batch_size]
             data = [d.split("\n") for d in data]
-            data = [" ".join(d[randint(0, len(d) - 1):]) for d in data]
+            data = [" ".join(d[randint(0, len(d) - 1):]).strip() for d in data]
 
             batch_size = len(data)
             if batch_size % torch.cuda.device_count() != 0:

@@ -7,10 +7,6 @@ from sklearn.metrics import accuracy_score
 import warnings
 warnings.filterwarnings("ignore")
 
-def gelu(x):
-    "Implementation of the gelu activation function by Hugging Face"
-    return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
-
 def compress_time(x, mask=None, keepdim=False):
     if mask is not None:
         x = x*mask.unsqueeze(-1)
@@ -28,20 +24,6 @@ def kmax_pooling(x, dim, k):
     #index = x.topk(k, dim=dim, sorted=False)[1]
     return x.gather(dim, index)
 
-class CustomLayerNorm(nn.Module):
-
-    def __init__(self, cfg, variance_epsilon=1e-12):
-        super().__init__()
-        self.gamma = nn.Parameter(torch.ones(cfg.hidden))
-        self.beta = nn.Parameter(torch.zeros(cfg.hidden))
-        self.variance_epsilon = variance_epsilon
-
-    def forward(self, x):
-        u = x.mean(-1, keepdim=True)
-        s = (x - u).pow(2).mean(-1, keepdim=True)
-        x = (x - u) / torch.sqrt(s + self.variance_epsilon)
-        return self.gamma * x + self.beta
-
 class PointWiseFeedForward(nn.Module):
 
     def __init__(self, cfg):
@@ -51,7 +33,7 @@ class PointWiseFeedForward(nn.Module):
         self.dropout = nn.Dropout(cfg.dropout)
 
     def forward(self, x):
-        x = gelu(self.fc1(x))
+        x = F.gelu(self.fc1(x))
         x = self.dropout(x)
         return self.fc2(x)
 
@@ -314,8 +296,8 @@ class TransformerLayer(nn.Module):
 
         self.proj = nn.Linear(cfg.hidden, cfg.hidden)
 
-        self.norm_1 = CustomLayerNorm(cfg)
-        self.norm_2 = CustomLayerNorm(cfg)
+        self.norm_1 = nn.LayerNorm(cfg.hidden)
+        self.norm_2 = nn.LayerNorm(cfg.hidden)
 
     def forward(self, x, mask):
         h = self.attn(x, mask)
@@ -330,7 +312,7 @@ class Embeddings(nn.Module):
     def __init__(self, cfg):
         super().__init__()
 
-        self.norm = CustomLayerNorm(cfg)
+        self.norm = nn.LayerNorm(cfg.hidden)
         self.dropout = nn.Dropout(cfg.dropout)
 
         self.cfg = cfg
@@ -439,7 +421,7 @@ class BertInnerLMHead(nn.Module):
         self.embedding_factorization = cfg.embedding_factorization
 
         self.dense = nn.Linear(cfg.hidden, cfg.hidden)
-        self.layer_norm = CustomLayerNorm(cfg)
+        self.layer_norm = nn.LayerNorm(cfg.hidden)
 
         if cfg.embedding_factorization > 0:
             self.decoder_factorization = nn.Linear(cfg.hidden, cfg.embedding_factorization)
@@ -454,7 +436,7 @@ class BertInnerLMHead(nn.Module):
 
     def forward(self, x):
         x = self.dense(x)
-        x = gelu(x)
+        x = F.gelu(x)
         x = self.layer_norm(x)
 
         # project back to size of vocabulary with bias
