@@ -50,16 +50,18 @@ class PreTrainDatasetTFW(object):
         """
 
         attn_mask = torch.ones(inputs_['input_ids'].shape).float()
-        attn_mask[inputs_['input_ids'] == self.tokenizer.mask_token_id] = 0.
         attn_mask[inputs_['input_ids'] == self.tokenizer.pad_token_id] = 0.
 
+        if self.train_cfg.mask_masked_tokens_in_attn:
+            attn_mask[inputs_['input_ids'] == self.tokenizer.mask_token_id] = 0.
+
         labels_mask = torch.zeros(inputs_['input_ids'].shape).float()
-        labels_mask[attn_mask == 0] = 1
+        labels_mask[inputs_['input_ids'] == self.tokenizer.mask_token_id] = 1
 
         return inputs_['input_ids'].long(), attn_mask.float(), inputs_['labels'].long(), labels_mask
 
     def __len__(self):
-        return int(len(self._dataset)/self.train_cfg.batch_size)
+        return int(len(self._dataset) / self.train_cfg.batch_size)
 
     def __iter__(self):
         for step, inputs_ in enumerate(self.dataloader):
@@ -151,6 +153,8 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
+    args.data_train = '/data/xp/transformer_inner/test.data'
+    args.data_valid = '/data/xp/transformer_inner/test.data'
     '''
     args.data_train = '/data/xp/transformer_inner/test.data'
     args.data_valid = '/data/xp/transformer_inner/test.data'
