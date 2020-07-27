@@ -41,7 +41,7 @@ def main(args):
     else:
         optimizer = optim4GPU(train_cfg, model)
 
-    trainer = Trainer(loader_train, loader_eval, model, optimizer, args.save_dir, get_device(), train_cfg.parallel, train_cfg.opt_level)
+    trainer = Trainer(loader_train, model, optimizer, args.save_dir, get_device(), train_cfg.parallel, train_cfg.opt_level)
 
     if args.load_model != "":
         print("Loading checkpoint")
@@ -65,6 +65,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
+    args.data_train = '/data/xp/transformer_inner/test.data'
     '''
     args.data_train = '/data/xp/transformer_inner/test.data'
     args.data_valid = '/data/xp/transformer_inner/test.data'

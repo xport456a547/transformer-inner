@@ -51,12 +51,24 @@ class PreTrainDatasetTFW(object):
 
         attn_mask = torch.ones(inputs_['input_ids'].shape).float()
         attn_mask[inputs_['input_ids'] == self.tokenizer.pad_token_id] = 0.
+        attn_mask[inputs_['input_ids'] == self.tokenizer.sep_token_id] = 0.
 
         if self.train_cfg.mask_masked_tokens_in_attn:
             attn_mask[inputs_['input_ids'] == self.tokenizer.mask_token_id] = 0.
 
         labels_mask = torch.zeros(inputs_['input_ids'].shape).float()
         labels_mask[inputs_['input_ids'] == self.tokenizer.mask_token_id] = 1
+
+        inputs_['labels'][inputs_['input_ids'] != self.tokenizer.mask_token_id] = 0
+
+        '''
+        print(self.tokenizer.convert_ids_to_tokens(inputs_['input_ids'][0]))
+        print("inputs", inputs_['input_ids'][0])
+        print("attn mask", attn_mask[0])
+        print("labels", inputs_['labels'][0])
+        print("label mask",labels_mask[0])
+        exit()
+        '''
 
         return inputs_['input_ids'].long(), attn_mask.float(), inputs_['labels'].long(), labels_mask
 

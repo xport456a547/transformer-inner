@@ -19,7 +19,6 @@
 
     "weigth_decay": 0.00, 
     "parallel": true,
-    "autoregressive" : true,
-    "autoregressive" : true,
+    "autoregressive" : false,
     "randomize_data" : true
 }
