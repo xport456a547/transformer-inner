@@ -254,7 +254,7 @@ class Projection(nn.Module):
         n, t, d = x.size()
 
         if mask is not None:
-            mask = mask.reshape(-1, self.block_size).mean(-1)
+            mask = mask.reshape(-1, self.block_size).sum(-1)
 
             mask = mask.clamp(1., t)
         else:

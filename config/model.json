@@ -1,5 +1,6 @@
 {
 	"tokenizer_prefix": "roberta-base",
+	"is_pretokenized": true,
 
 	"embedding_factorization" : 128,
 	"n_layers": 12,

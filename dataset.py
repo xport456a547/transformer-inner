@@ -11,18 +11,23 @@ class PreTrainDataset(object):
     def __init__(self, path, train_cfg, model_cfg):
 
         try:
-            self.tokenizer = AutoTokenizer.from_pretrained(model_cfg.tokenizer_prefix)
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                model_cfg.tokenizer_prefix)
         except:
             print("Loading custom tokenizer")
-            self.tokenizer = self.load_custom_tokenizer(model_cfg.tokenizer_prefix)
-        
+            self.tokenizer = self.load_custom_tokenizer(
+                model_cfg.tokenizer_prefix)
+
+        model_cfg.vocab_size = len(self.tokenizer)
         self.mask_id = self.tokenizer.convert_tokens_to_ids(
             self.tokenizer.mask_token)
-        model_cfg.vocab_size = len(self.tokenizer)
-
+        
         self.data = open(path, "r", encoding="utf-8").read()
-        self.data = re.sub(r"\s?\n\s?", r"\n", self.data)
+        self.data = re.sub(r" ?\n ?", r"\n", self.data)
         self.data = self.data.split("\n\n")
+
+        # Exclude titles
+        #self.data = [d.strip() for d in self.data if len(d) > 0 and d.strip()[0] != "="]
 
         self.batch_size = train_cfg.batch_size
         self.dataset_size = len(self.data)
@@ -32,6 +37,8 @@ class PreTrainDataset(object):
 
         self.max_masked_words = round(train_cfg.mask_prob * model_cfg.max_len)
         self.mask_masked_tokens_in_attn = train_cfg.mask_masked_tokens_in_attn
+
+        self.is_pretokenized = model_cfg.is_pretokenized
 
         self.step = 0
         self.dataset_indexes = [i for i in range(self.dataset_size)]
@@ -51,8 +58,12 @@ class PreTrainDataset(object):
 
             batch_size = len(data)
 
+            # See https://huggingface.co/transformers/preprocessing.html
+            if self.is_pretokenized:
+                data = [d.split() for d in data]
+
             data = self.tokenizer(data, max_length=self.max_len,
-                                  padding='max_length', truncation=True, return_tensors="pt")
+                                  padding='max_length', truncation=True, return_tensors="pt", is_pretokenized=self.is_pretokenized)
 
             label_mask = torch.zeros(batch_size, self.max_len).float()
             for i in range(batch_size):
@@ -93,7 +104,8 @@ class PreTrainDataset(object):
         self.data = [self.data[i] for i in dataset_indexes]
 
     def load_custom_tokenizer(self, path):
-        tokenizer = ByteLevelBPETokenizer(path + "-vocab.json", path + "-merges.txt")
+        tokenizer = ByteLevelBPETokenizer(
+            path + "-vocab.json", path + "-merges.txt")
         # Add preprocessing tokens like Roberta
         tokenizer._tokenizer.post_processor = BertProcessing(
             ("</s>", tokenizer.token_to_id("</s>")),
@@ -111,10 +123,12 @@ class GlueDataset(object):
         assert type(labels) == list, "Expect a list of labels"
 
         try:
-            self.tokenizer = AutoTokenizer.from_pretrained(model_cfg.tokenizer_prefix)
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                model_cfg.tokenizer_prefix)
         except:
             print("Loading custom tokenizer")
-            self.tokenizer = self.load_custom_tokenizer(model_cfg.tokenizer_prefix)
+            self.tokenizer = self.load_custom_tokenizer(
+                model_cfg.tokenizer_prefix)
 
         self.data = data
         self.labels = labels
@@ -133,7 +147,7 @@ class GlueDataset(object):
 
         self.step = 0
         self.dataset_indexes = [i for i in range(self.dataset_size)]
-        #self.reset_epoch()
+        # self.reset_epoch()
 
     def __iter__(self):
 
@@ -187,7 +201,8 @@ class GlueDataset(object):
         return len(list(set(self.labels)))
 
     def load_custom_tokenizer(self, path):
-        tokenizer = ByteLevelBPETokenizer(path + "-vocab.json", path + "-merges.txt")
+        tokenizer = ByteLevelBPETokenizer(
+            path + "-vocab.json", path + "-merges.txt")
         # Add preprocessing tokens like Roberta
         tokenizer._tokenizer.post_processor = BertProcessing(
             ("</s>", tokenizer.token_to_id("</s>")),
