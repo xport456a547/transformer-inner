@@ -1,5 +1,6 @@
 {
 	"tokenizer_prefix": "roberta-base",
+	"is_pretokenized": true,
 
 	"embedding_factorization" : 128,
 	"n_layers": 12,
@@ -16,7 +17,7 @@
 	"block_positional_embedding": false,
 	"inner_block_positional_embedding": false,
 
-	"projection": "cnn",
+	"projection": "mean",
 	"inner_attn": true,
 	"efficient_attn": false,
 	"outer_attn": "",

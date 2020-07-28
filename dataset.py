@@ -11,27 +11,42 @@ class PreTrainDataset(object):
     def __init__(self, path, train_cfg, model_cfg):
 
         try:
-            self.tokenizer = AutoTokenizer.from_pretrained(model_cfg.tokenizer_prefix)
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                model_cfg.tokenizer_prefix)
         except:
             print("Loading custom tokenizer")
-            self.tokenizer = self.load_custom_tokenizer(model_cfg.tokenizer_prefix)
-        
+            self.tokenizer = self.load_custom_tokenizer(
+                model_cfg.tokenizer_prefix)
+
         self.mask_id = self.tokenizer.convert_tokens_to_ids(
             self.tokenizer.mask_token)
+
+        # Masked tokens are represented by their position only
+        if train_cfg.mask_with_pad:
+            self.mask_id = self.tokenizer.convert_tokens_to_ids(
+                self.tokenizer.pad_token)
+
         model_cfg.vocab_size = len(self.tokenizer)
+        model_cfg.padding_idx = self.tokenizer.convert_tokens_to_ids(
+            self.tokenizer.pad_token)
 
         self.data = open(path, "r", encoding="utf-8").read()
-        self.data = re.sub(r"\s?\n\s?", r"\n", self.data)
-        self.data = self.data.split("\n\n")
 
+        self.data = re.sub(r" ?\n ?", r"\n", self.data)
+        self.data = self.data.split("\n\n")
+        self.data = [d.strip() for d in self.data if len(d)
+                     > 0 and d.strip()[0] != "="]
+
+        self.train_cfg = train_cfg
         self.batch_size = train_cfg.batch_size
         self.dataset_size = len(self.data)
 
         self.max_len = model_cfg.max_len
-        self.keep_prob = train_cfg.keep_prob
 
         self.max_masked_words = round(train_cfg.mask_prob * model_cfg.max_len)
         self.mask_masked_tokens_in_attn = train_cfg.mask_masked_tokens_in_attn
+
+        self.is_pretokenized = model_cfg.is_pretokenized
 
         self.step = 0
         self.dataset_indexes = [i for i in range(self.dataset_size)]
@@ -49,10 +64,13 @@ class PreTrainDataset(object):
             if batch_size % torch.cuda.device_count() != 0:
                 data = data[: -batch_size % torch.cuda.device_count()]
 
+            if self.is_pretokenized:
+                data = [d.split() for d in data]
+
             batch_size = len(data)
 
             data = self.tokenizer(data, max_length=self.max_len,
-                                  padding='max_length', truncation=True, return_tensors="pt")
+                                  padding='max_length', truncation=True, return_tensors="pt", is_pretokenized=self.is_pretokenized)
 
             label_mask = torch.zeros(batch_size, self.max_len).float()
             for i in range(batch_size):
@@ -61,10 +79,19 @@ class PreTrainDataset(object):
 
             label_mask *= data["attention_mask"]
             keep_mask = label_mask * \
-                torch.bernoulli(torch.ones_like(label_mask) - self.keep_prob)
+                torch.bernoulli(torch.ones_like(label_mask) -
+                                self.train_cfg.keep_prob)
+            random_mask = torch.bernoulli(torch.ones_like(
+                label_mask) * self.train_cfg.random_prob * self.train_cfg.mask_prob)
 
+            # Do not mask few words
             input_ids = data["input_ids"] * \
                 (1 - keep_mask) + keep_mask * self.mask_id
+
+            # Replace with random token
+            input_ids = input_ids * (1 - random_mask) + random_mask * \
+                torch.randint_like(input_ids, 1, len(self.tokenizer))
+
             label = data["input_ids"] * label_mask
             attn_mask = data["attention_mask"].float()
 
@@ -93,14 +120,14 @@ class PreTrainDataset(object):
         self.data = [self.data[i] for i in dataset_indexes]
 
     def load_custom_tokenizer(self, path):
-        tokenizer = ByteLevelBPETokenizer(path + "-vocab.json", path + "-merges.txt")
+        tokenizer = ByteLevelBPETokenizer(
+            path + "-vocab.json", path + "-merges.txt")
         # Add preprocessing tokens like Roberta
         tokenizer._tokenizer.post_processor = BertProcessing(
             ("</s>", tokenizer.token_to_id("</s>")),
             ("<s>", tokenizer.token_to_id("<s>")),
         )
         return PreTrainedTokenizerFast(tokenizer, pad_token="<pad>", mask_token="<mask>", unk_token="<unk>", bos_token="<s>", eos_token="</s>")
-
 
 class GlueDataset(object):
 
@@ -111,15 +138,20 @@ class GlueDataset(object):
         assert type(labels) == list, "Expect a list of labels"
 
         try:
-            self.tokenizer = AutoTokenizer.from_pretrained(model_cfg.tokenizer_prefix)
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                model_cfg.tokenizer_prefix)
         except:
             print("Loading custom tokenizer")
-            self.tokenizer = self.load_custom_tokenizer(model_cfg.tokenizer_prefix)
+            self.tokenizer = self.load_custom_tokenizer(
+                model_cfg.tokenizer_prefix)
 
         self.data = data
         self.labels = labels
 
         model_cfg.vocab_size = len(self.tokenizer)
+        model_cfg.padding_idx = self.tokenizer.convert_tokens_to_ids(
+            self.tokenizer.pad_token)
+
         self.batch_size = train_cfg.batch_size
         self.max_len = model_cfg.max_len
         self.reduced_max_len = model_cfg.reduced_max_len
@@ -133,7 +165,7 @@ class GlueDataset(object):
 
         self.step = 0
         self.dataset_indexes = [i for i in range(self.dataset_size)]
-        #self.reset_epoch()
+        # self.reset_epoch()
 
     def __iter__(self):
 
@@ -187,7 +219,8 @@ class GlueDataset(object):
         return len(list(set(self.labels)))
 
     def load_custom_tokenizer(self, path):
-        tokenizer = ByteLevelBPETokenizer(path + "-vocab.json", path + "-merges.txt")
+        tokenizer = ByteLevelBPETokenizer(
+            path + "-vocab.json", path + "-merges.txt")
         # Add preprocessing tokens like Roberta
         tokenizer._tokenizer.post_processor = BertProcessing(
             ("</s>", tokenizer.token_to_id("</s>")),

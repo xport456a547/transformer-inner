@@ -1,21 +1,24 @@
 {
     "opt_level": "",
     "seed": 7,
-    "batch_size": 48,
+    "batch_size": 32,
     "lr": 1e-4,
     "n_epochs": 25,
     "accumulation_steps": 1,
 
     "mask_prob": 0.15,
-    "keep_prob": 0.10,
-    "mask_masked_tokens_in_attn": true,
+    "keep_prob": 0.25,
+    "random_prob": 0.0,
+
+    "mask_masked_tokens_in_attn": false,
+    "mask_with_pad": true,
 
     "warmup": 0.1,
     "save_steps": 5000,
     "total_steps": 250000,
     
-    "optimizer": "lamb",
-    "optimizer_parameters": {"lr": 1.5e-3, "weight_decay": 0.00},
+    "optimizer": "radam",
+    "optimizer_parameters": {"lr": 1e-4, "weight_decay": 0.00},
 
     "weigth_decay": 0.00, 
     "parallel": true

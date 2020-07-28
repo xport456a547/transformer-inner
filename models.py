@@ -7,6 +7,16 @@ from sklearn.metrics import accuracy_score
 import warnings
 warnings.filterwarnings("ignore")
 
+def BertLayerNorm(shape, eps=1e-5, elementwise_affine=True):
+    if torch.cuda.is_available():
+        try:
+            from apex.normalization import FusedLayerNorm
+
+            return FusedLayerNorm(shape, eps=eps, elementwise_affine=elementwise_affine)
+        except ImportError:
+            pass
+    return nn.LayerNorm(shape, eps=eps, elementwise_affine=elementwise_affine)
+
 def compress_time(x, mask=None, keepdim=False):
     if mask is not None:
         x = x*mask.unsqueeze(-1)
@@ -77,9 +87,13 @@ class Attention(nn.Module):
 
             if self.outer_attn == "scaled":
                 if mask_attn is not None:
-                    k = k * mask_attn[:, None, :, None].float()
+                    k = k * mask_attn[:, None, :, None].float() 
                 if mask_q is not None:
                     q = q * mask_q[:, None, :, None].float()
+
+                k = self.drop_attn(k)
+                output = k.transpose(-1, -2) @ v
+                output = self.drop_attn(q) @ output
 
                 k = self.drop_attn(k)
                 output = k.transpose(-1, -2) @ v
@@ -105,7 +119,6 @@ class Attention(nn.Module):
                     q = q * mask_q[:, None, :, None].float()
 
                 output = self.drop_attn(q @ k.transpose(-1, -2))
-                output = output / (mask_attn.sum(-1, keepdim=True).unsqueeze(1))
                 output = output @ v / mask_out.sum(-1, keepdim=True)[:, :, None, None]
 
             else:
@@ -236,8 +249,7 @@ class Projection(nn.Module):
         n, t, d = x.size()
 
         if mask is not None:
-            mask = mask.reshape(-1, self.block_size).mean(-1)
-
+            mask = mask.reshape(-1, self.block_size).sum(-1)
             mask = mask.clamp(1., t)
         else:
             mask = [self.block_size for _ in range(n*t//self.block_size)]
@@ -257,6 +269,11 @@ class LinearAttention(nn.Module):
         if cfg.inner_attn:
             self.proj = Projection(cfg)
             self.proj_attn = Attention(cfg)
+
+        if self.cfg.attn_skip_connection:
+            self.norm = BertLayerNorm(cfg.hidden)
+            self.hidden = nn.Linear(cfg.hidden, cfg.hidden)
+            
         else:
             self.proj_k = Projection(cfg)
             self.proj_v = Projection(cfg)
@@ -264,19 +281,21 @@ class LinearAttention(nn.Module):
         self.output_attn = Attention(cfg)
 
     def forward(self, x, mask=None):
+
         if self.cfg.inner_attn:
             x_proj, proj_mask = self.proj(x, mask)
-            x_proj = self.proj_attn(
+            x_proj_out = self.proj_attn(
                 x_proj, x_proj, x_proj, proj_mask, proj_mask, proj_mask, vanilla=True)
-            h = self.output_attn(x, x_proj, x_proj, mask, proj_mask, mask)
+
+            if self.cfg.attn_skip_connection:
+                x_proj_out = self.norm(x_proj + self.hidden(x_proj_out))
+            h = self.output_attn(x, x_proj_out, x_proj_out, mask, proj_mask, mask)
+
         else:
             x_proj_k, proj_mask = self.proj_k(x, mask)
             x_proj_v, proj_mask = self.proj_v(x, mask)
             h = self.output_attn(x, x_proj_k, x_proj_v, mask, proj_mask, mask)
-
-        if self.cfg.attn_skip_connection:
-            h = h + x
-
+            
         return h
 
 class TransformerLayer(nn.Module):
@@ -286,7 +305,7 @@ class TransformerLayer(nn.Module):
 
         if attn is not None:
             self.attn = attn
-        else:
+        else:  
             self.attn = LinearAttention(cfg)
 
         if pwff is not None:
@@ -296,8 +315,8 @@ class TransformerLayer(nn.Module):
 
         self.proj = nn.Linear(cfg.hidden, cfg.hidden)
 
-        self.norm_1 = nn.LayerNorm(cfg.hidden)
-        self.norm_2 = nn.LayerNorm(cfg.hidden)
+        self.norm_1 = BertLayerNorm(cfg.hidden)
+        self.norm_2 = BertLayerNorm(cfg.hidden)
 
     def forward(self, x, mask):
         h = self.attn(x, mask)
@@ -312,7 +331,7 @@ class Embeddings(nn.Module):
     def __init__(self, cfg):
         super().__init__()
 
-        self.norm = nn.LayerNorm(cfg.hidden)
+        self.norm = BertLayerNorm(cfg.hidden)
         self.dropout = nn.Dropout(cfg.dropout)
 
         self.cfg = cfg
@@ -323,19 +342,19 @@ class Embeddings(nn.Module):
         self.embedding_factorization = cfg.embedding_factorization
 
         if cfg.embedding_factorization > 0:
-            self.embedding = nn.Embedding(cfg.vocab_size, cfg.embedding_factorization, padding_idx=0)
+            self.embedding = nn.Embedding(cfg.vocab_size, cfg.embedding_factorization, padding_idx=cfg.padding_idx)
             self.factorization = nn.Linear(cfg.embedding_factorization, cfg.hidden)
         else:
-            self.embedding = nn.Embedding(cfg.vocab_size, cfg.hidden, padding_idx=0)
+            self.embedding = nn.Embedding(cfg.vocab_size, cfg.hidden, padding_idx=cfg.padding_idx)
 
         if cfg.positional_embedding:
-            self.pos_embedding = nn.Embedding(cfg.max_len + 1, cfg.hidden, padding_idx=0)
+            self.pos_embedding = nn.Embedding(cfg.max_len + 1, cfg.hidden, padding_idx=cfg.padding_idx)
 
         if cfg.block_positional_embedding:
-            self.block_pos_embedding = nn.Embedding(cfg.n_blocks + 1, cfg.hidden, padding_idx=0)
+            self.block_pos_embedding = nn.Embedding(cfg.n_blocks + 1, cfg.hidden, padding_idx=cfg.padding_idx)
 
         if cfg.inner_block_positional_embedding:
-            self.inner_block_pos_embedding = nn.Embedding(cfg.block_size + 1, cfg.hidden, padding_idx=0)
+            self.inner_block_pos_embedding = nn.Embedding(cfg.block_size + 1, cfg.hidden, padding_idx=cfg.padding_idx)
 
     def forward(self, x, mask=None):
 
@@ -347,33 +366,20 @@ class Embeddings(nn.Module):
             x = self.factorization(x) 
 
         if self.positional_embedding:
-
             pos = torch.arange(t, device=x.device) + 1
             pos = pos.unsqueeze(0).expand_as(x[:,:,0]) 
-
-            if mask is not None:
-                pos = pos * mask.long()
-
             pos = self.pos_embedding(pos)
             x = x + pos
 
         if self.block_positional_embedding:
             pos = torch.cat([torch.ones(self.cfg.block_size) * i for i in range(self.cfg.n_blocks)]).to(x.device).long() + 1
             pos = pos.unsqueeze(0).expand_as(x[:,:,0]) 
-
-            if mask is not None:
-                pos = pos * mask.long()
-
             pos = self.block_pos_embedding(pos)
             x = x + pos
 
         if self.inner_block_positional_embedding:
             pos = torch.cat([torch.arange(self.cfg.block_size) for i in range(self.cfg.n_blocks)]).to(x.device).long() + 1
             pos = pos.unsqueeze(0).expand_as(x[:,:,0]) 
-
-            if mask is not None:
-                pos = pos * mask.long()
-
             pos = self.inner_block_pos_embedding(pos)
             x = x + pos
 
@@ -421,7 +427,7 @@ class BertInnerLMHead(nn.Module):
         self.embedding_factorization = cfg.embedding_factorization
 
         self.dense = nn.Linear(cfg.hidden, cfg.hidden)
-        self.layer_norm = nn.LayerNorm(cfg.hidden)
+        self.layer_norm = BertLayerNorm(cfg.hidden)
 
         if cfg.embedding_factorization > 0:
             self.decoder_factorization = nn.Linear(cfg.hidden, cfg.embedding_factorization)
