@@ -28,6 +28,7 @@
 
 	"share_pwff": false,
 	"share_attn": false,
-	"share_all": false
+	"share_all": false,
+	"is_pretokenized": false
 }
 

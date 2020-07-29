@@ -65,8 +65,9 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    args.data_train = '/data/xp/transformer_inner/test.data'
+
     '''
+    args.data_train = '/data/xp/transformer_inner/test.data'
     args.data_train = '/data/xp/transformer_inner/test.data'
     args.data_valid = '/data/xp/transformer_inner/test.data'
     args.data_train = '/data/xp/transformer_inner/text8/text8.train.modif'

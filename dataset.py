@@ -4,6 +4,7 @@ from tokenizers.processors import BertProcessing
 import random
 from random import randint
 import torch
+import re
 
 
 class PreTrainDataset(object):
@@ -11,17 +12,26 @@ class PreTrainDataset(object):
     def __init__(self, path, train_cfg, model_cfg):
 
         try:
-            self.tokenizer = AutoTokenizer.from_pretrained(model_cfg.tokenizer_prefix)
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                model_cfg.tokenizer_prefix)
         except:
             print("Loading custom tokenizer")
-            self.tokenizer = self.load_custom_tokenizer(model_cfg.tokenizer_prefix)
+            self.tokenizer = self.load_custom_tokenizer(
+                model_cfg.tokenizer_prefix)
 
+        model_cfg.vocab_size = len(self.tokenizer)
         self.mask_id = self.tokenizer.convert_tokens_to_ids(
             self.tokenizer.mask_token)
-        model_cfg.vocab_size = len(self.tokenizer)
 
-        self.data = open(path, "r", encoding="utf-8").read().split("\n\n")
+        self.data = open(path, "r", encoding="utf-8").read()
+        self.data = re.sub(r" ?\n ?", r"\n", self.data)
+        self.data = self.data.split("\n\n")
 
+        # Exclude titles
+        self.data = [d.strip() for d in self.data if len(d) > 0 and d.strip()[0] != "="]
+
+        print("dataset size", len(self.data))
+        
         self.batch_size = train_cfg.batch_size
         self.dataset_size = len(self.data)
 
@@ -31,25 +41,19 @@ class PreTrainDataset(object):
         self.max_masked_words = round(train_cfg.mask_prob * model_cfg.max_len)
         self.mask_masked_tokens_in_attn = train_cfg.mask_masked_tokens_in_attn
 
+        self.is_pretokenized = model_cfg.is_pretokenized
+
         self.step = 0
         self.dataset_indexes = [i for i in range(self.dataset_size)]
         self.reset_epoch()
-        self.autoregressive = train_cfg.autoregressive if 'autoregressive' in train_cfg else False
-        self.randomize = train_cfg.randomize_data if 'randomize_data' in train_cfg else False
-
-    def __len__(self):
-        return int(self.dataset_size / self.batch_size)
-
 
     def __iter__(self):
 
         while self.step < self.dataset_size - torch.cuda.device_count():
 
             data = self.data[self.step: self.step + self.batch_size]
-
-            if self.randomize:
-                data = [d.split("\n") for d in data]
-                data = [" ".join(d[randint(0, len(d) - 1):]) for d in data]
+            data = [d.split("\n") for d in data]
+            data = [" ".join(d[randint(0, len(d) - 1):]).strip() for d in data]
 
             batch_size = len(data)
             if batch_size % torch.cuda.device_count() != 0:
@@ -57,36 +61,22 @@ class PreTrainDataset(object):
 
             batch_size = len(data)
 
+            # See https://huggingface.co/transformers/preprocessing.html
+            if self.is_pretokenized:
+                data = [d.split() for d in data]
+
             data = self.tokenizer(data, max_length=self.max_len,
-                                  padding='max_length', truncation=True, return_tensors="pt")
+                                  padding='max_length', truncation=True, return_tensors="pt",
+                                  is_pretokenized=self.is_pretokenized)
+
             label_mask = torch.zeros(batch_size, self.max_len).float()
+            for i in range(batch_size):
+                indices = torch.randperm(self.max_len)[:self.max_masked_words]
+                label_mask[i, indices] += 1.
 
-            if not self.autoregressive:
-                for i in range(batch_size):
-                    indices = torch.randperm(self.max_len)[:self.max_masked_words]
-                    label_mask[i, indices] += 1.
-
-                label_mask *= data["attention_mask"]
-                keep_mask = label_mask * \
-                            torch.bernoulli(torch.ones_like(label_mask) - self.keep_prob)
-
-            else:  # autoregressive
-
-                self.mask_masked_tokens_in_attn = True
-
-                for i in range(batch_size):
-                    end_seq_idx = self.max_len-1
-                    for j, id_ in enumerate(data["input_ids"][i]):
-                        if id_ == self.tokenizer.pad_token_id:
-                            end_seq_idx = j-1
-                            break
-                    # we remove the character corresponding to </s>
-                    data["input_ids"][i][end_seq_idx] = 0
-                    data["attention_mask"][i][end_seq_idx] = 0
-                    label_mask[i, [end_seq_idx-1]] += 1.
-
-                label_mask *= data["attention_mask"]
-                keep_mask = label_mask
+            label_mask *= data["attention_mask"]
+            keep_mask = label_mask * \
+                        torch.bernoulli(torch.ones_like(label_mask) - self.keep_prob)
 
             input_ids = data["input_ids"] * \
                         (1 - keep_mask) + keep_mask * self.mask_id
@@ -97,6 +87,14 @@ class PreTrainDataset(object):
                 attn_mask *= (1. - keep_mask)
 
             self.step += batch_size
+
+            '''
+            print(self.tokenizer.convert_ids_to_tokens(input_ids[0]))
+            print(input_ids[0])
+            print(attn_mask[0])
+            print(label[0])
+            print(label_mask[0])
+            '''
             yield input_ids.long(), attn_mask.float(), label.long(), label_mask
 
     def reset_epoch(self):
@@ -117,7 +115,8 @@ class PreTrainDataset(object):
         self.data = [self.data[i] for i in dataset_indexes]
 
     def load_custom_tokenizer(self, path):
-        tokenizer = ByteLevelBPETokenizer(path + "-vocab.json", path + "-merges.txt")
+        tokenizer = ByteLevelBPETokenizer(
+            path + "-vocab.json", path + "-merges.txt")
         # Add preprocessing tokens like Roberta
         tokenizer._tokenizer.post_processor = BertProcessing(
             ("</s>", tokenizer.token_to_id("</s>")),
@@ -125,9 +124,6 @@ class PreTrainDataset(object):
         )
         return PreTrainedTokenizerFast(tokenizer, pad_token="<pad>", mask_token="<mask>", unk_token="<unk>",
                                        bos_token="<s>", eos_token="</s>")
-
-
-
 
 
 class GlueDataset(object):
@@ -139,10 +135,12 @@ class GlueDataset(object):
         assert type(labels) == list, "Expect a list of labels"
 
         try:
-            self.tokenizer = AutoTokenizer.from_pretrained(model_cfg.tokenizer_prefix)
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                model_cfg.tokenizer_prefix)
         except:
             print("Loading custom tokenizer")
-            self.tokenizer = self.load_custom_tokenizer(model_cfg.tokenizer_prefix)
+            self.tokenizer = self.load_custom_tokenizer(
+                model_cfg.tokenizer_prefix)
 
         self.data = data
         self.labels = labels
@@ -215,7 +213,8 @@ class GlueDataset(object):
         return len(list(set(self.labels)))
 
     def load_custom_tokenizer(self, path):
-        tokenizer = ByteLevelBPETokenizer(path + "-vocab.json", path + "-merges.txt")
+        tokenizer = ByteLevelBPETokenizer(
+            path + "-vocab.json", path + "-merges.txt")
         # Add preprocessing tokens like Roberta
         tokenizer._tokenizer.post_processor = BertProcessing(
             ("</s>", tokenizer.token_to_id("</s>")),

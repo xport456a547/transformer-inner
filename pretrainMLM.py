@@ -9,7 +9,6 @@ import apex
 from transformers import TextDataset, DataCollatorForLanguageModeling
 from torch.utils.data.sampler import RandomSampler, SequentialSampler
 from torch.utils.data.dataloader import DataLoader
-from tqdm.auto import tqdm, trange
 
 
 class PreTrainDatasetTFW(object):
@@ -23,12 +22,14 @@ class PreTrainDatasetTFW(object):
         self.tokenizer = tokenizer
         self.train_cfg = train_cfg
         self._dataset = TextDataset(tokenizer=tokenizer, file_path=path, block_size=model_cfg.max_len)
-        self.data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15)
+        self.data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=self.train_cfg.mask_prob)
         self.is_train = is_train
         if not self.is_train:
             self.sampler = RandomSampler(self._dataset)
+            self.mask_keep_prob = self.train_cfg.keep_prob
         else:
             self.sampler = SequentialSampler(self._dataset)
+            self.mask_keep_prob = 1 # no unmasking considered during validation & testing
 
         self.dataloader = DataLoader(
             self._dataset,
@@ -53,20 +54,30 @@ class PreTrainDatasetTFW(object):
         attn_mask[inputs_['input_ids'] == self.tokenizer.pad_token_id] = 0.
         attn_mask[inputs_['input_ids'] == self.tokenizer.sep_token_id] = 0.
 
-        if self.train_cfg.mask_masked_tokens_in_attn:
-            attn_mask[inputs_['input_ids'] == self.tokenizer.mask_token_id] = 0.
-
+        inputs_['labels'][inputs_['input_ids'] != self.tokenizer.mask_token_id] = 0
         labels_mask = torch.zeros(inputs_['input_ids'].shape).float()
         labels_mask[inputs_['input_ids'] == self.tokenizer.mask_token_id] = 1
 
-        inputs_['labels'][inputs_['input_ids'] != self.tokenizer.mask_token_id] = 0
+        keep_mask = labels_mask * torch.bernoulli(torch.ones_like(attn_mask) - self.mask_keep_prob)
+        unmask = (labels_mask - keep_mask).long()
+
+        '''
+        print("inputs", inputs_['input_ids'][0])
+        print("labels_mask", labels_mask[0])
+        print("unmask", unmask[0])
+        '''
+
+        inputs_['input_ids'] = inputs_['input_ids'] * (1 - unmask) + inputs_['labels'] * unmask
+
+        if self.train_cfg.mask_masked_tokens_in_attn:
+            attn_mask *= (1. - keep_mask)
 
         '''
         print(self.tokenizer.convert_ids_to_tokens(inputs_['input_ids'][0]))
         print("inputs", inputs_['input_ids'][0])
         print("attn mask", attn_mask[0])
         print("labels", inputs_['labels'][0])
-        print("label mask",labels_mask[0])
+        print("label mask", labels_mask[0])
         exit()
         '''
 
@@ -124,7 +135,7 @@ def main(args):
     model_cfg.vocab_size = len(tokenizer)
 
     loader_train = PreTrainDatasetTFW(args.data_train, tokenizer, train_cfg, model_cfg, is_train=True)
-    loader_eval = PreTrainDatasetTFW(args.data_valid, tokenizer, train_cfg, model_cfg, is_train=False)
+    loader_eval  = PreTrainDatasetTFW(args.data_valid, tokenizer, train_cfg, model_cfg, is_train=False)
 
     model = BertInnerForMaskedLM(model_cfg)
 
@@ -139,7 +150,7 @@ def main(args):
     else:
         optimizer = optim4GPU(train_cfg, model)
 
-    trainer = Trainer(loader_train, model, optimizer, args.save_dir, get_device(), train_cfg.parallel,
+    trainer = Trainer(loader_train, loader_eval, model, optimizer, args.save_dir, get_device(), train_cfg.parallel,
                       train_cfg.opt_level)
 
     if args.load_model != "":
@@ -165,11 +176,11 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
+
+
     '''
     args.data_train = '/data/xp/transformer_inner/test.data'
     args.data_valid = '/data/xp/transformer_inner/test.data'
-    '''
-    '''
     args.data_train = '/data/xp/transformer_inner/test.data'
     args.data_valid = '/data/xp/transformer_inner/test.data'
 
